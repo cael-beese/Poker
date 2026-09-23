@@ -1,0 +1,5 @@
+build/
+build-*/
+third_party/
+out/
+*.o
