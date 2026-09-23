@@ -313,7 +313,9 @@ static void apply_action(HoldemGame *g, int s, int act, int64_t amount, EventQue
     case ACT_CALL:
         put_to(g, s, L.call_to);
         p->acted = 1;
-        code = p->allin ? ACT_ALLIN : ACT_CALL;
+        /* An all-in that only calls is a call: the AI reads ACT_ALLIN as
+           aggression (CONTRACT section 5). allin[] still shows it. */
+        code = ACT_CALL;
         break;
     default: {
         int64_t prev = g->cur_bet, inc = to - prev;
@@ -346,6 +348,7 @@ static void apply_action(HoldemGame *g, int s, int act, int64_t amount, EventQue
 void holdem_build_view(const HoldemGame *g, int me, AiView *v)
 {
     HoldemLegal L;
+    int64_t maxbet = 0;
     int s, i;
 
     memset(v, 0, sizeof *v);
@@ -361,18 +364,22 @@ void holdem_build_view(const HoldemGame *g, int me, AiView *v)
     v->hole[1] = g->seat[me].hole[1];
     for (i = 0; i < g->nboard && i < 5; i++) v->board[i] = g->board[i];
     v->nboard = g->nboard;
+    /* Field meanings are fixed by CONTRACT section 5: stack behind, bet this
+       street, pot from completed streets only (antes included), to_call =
+       max(bet) - bet[me] uncapped, min_raise a raise-to total (0 when this
+       seat may not raise), active = in the hand and able to act, allin =
+       in the hand and all-in. */
     for (s = 0; s < HOLDEM_SEATS; s++) {
         v->stack[s] = g->seat[s].stack;
         v->bet[s] = g->seat[s].bet;
-        v->active[s] = (uint8_t)live(g, s);
+        v->active[s] = (uint8_t)can_act(g, s);
         v->allin[s] = (uint8_t)(live(g, s) && g->seat[s].allin);
+        if (v->bet[s] > maxbet) maxbet = v->bet[s];
     }
-    v->pot = holdem_pot_total(g);
+    v->pot = g->pot;
+    v->to_call = maxbet - v->bet[me];
     legal_for(g, me, &L);
-    if (L.seat == me) {
-        v->to_call = L.to_call;
-        v->min_raise = (L.can_bet || L.can_raise) ? L.min_to : 0;
-    }
+    if (L.seat == me) v->min_raise = (L.can_bet || L.can_raise) ? L.min_to : 0;
     v->big_blind = holdem_level(g).bb;
     memcpy(v->history, g->history, sizeof v->history);
     v->nhist = g->nhist;

@@ -133,9 +133,14 @@ static void spy_begin(void *ctx, int seat, const AiView *v, uint64_t seed)
         HoldemLegal L;
         holdem_legal(g, &L);
         CHECK_EQ_INT(L.seat, seat);
-        CHECK_EQ_INT(v->to_call, L.to_call);
+        { int64_t mb = 0; for (t = 0; t < HOLDEM_SEATS; t++) if (g->seat[t].bet > mb) mb = g->seat[t].bet;
+          CHECK_EQ_INT(v->to_call, mb - g->seat[seat].bet); }
         CHECK_EQ_INT(v->min_raise, (L.can_bet || L.can_raise) ? L.min_to : 0);
-        CHECK_EQ_INT(v->pot, holdem_pot_total(g));
+        CHECK_EQ_INT(v->pot, g->pot);
+        for (t = 0; t < HOLDEM_SEATS; t++) {
+            CHECK_EQ_INT(v->active[t], g->seat[t].in_hand && !g->seat[t].folded && !g->seat[t].allin);
+            CHECK_EQ_INT(v->allin[t], g->seat[t].in_hand && !g->seat[t].folded && g->seat[t].allin);
+        }
         CHECK_EQ_INT(v->nhist, g->nhist);
     }
     s->bots.kind[seat] = HOLDEM_BOT_RANDOM;
@@ -206,7 +211,7 @@ static void history_codes(void)
     CHECK_EQ_INT(v->street, 1);
     CHECK_EQ_INT(v->to_call, 20);
     CHECK_EQ_INT(v->min_raise, 40);
-    CHECK_EQ_INT(v->pot, 10 + 60 + 60 + 20);
+    CHECK_EQ_INT(v->pot, 10 + 60 + 60);                   /* completed streets only */
     CHECK_EQ_INT(v->big_blind, 20);
     CHECK(v->active[2] && v->active[3] && !v->active[1] && !v->active[4]);
     CHECK_EQ_INT(v->nboard, 3);

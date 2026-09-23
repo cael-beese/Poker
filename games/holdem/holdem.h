@@ -137,7 +137,8 @@ enum {
     EV_HOLDEM_TURN,             /* a seat, b 1 = the human must act now, v to call     */
     EV_HOLDEM_TELL,             /* a seat, v tell * 1000 (AI decision collected)       */
     EV_HOLDEM_AMOUNT,           /* the human's selected bet/raise-to changed, v amount */
-    EV_HOLDEM_ACTION,           /* a seat, b ACT_*, v seat's total bet this street     */
+    EV_HOLDEM_ACTION,           /* a seat, b ACT_* (ALLIN = all-in bet/raise; an all-in
+                                   call is CALL), v seat total bet this street         */
     EV_HOLDEM_UNCALLED,         /* a seat, v uncalled chips returned to the stack      */
     EV_HOLDEM_BETS_TO_POT,      /* a street, v chips in the middle after collecting    */
     EV_HOLDEM_POT,              /* a pot index (0 = main), b eligible seat mask, v amount */

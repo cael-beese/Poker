@@ -88,12 +88,11 @@ static inline int th_action_legal(const TurnRec *r, int code, int64_t v)
     switch (code) {
     case ACT_FOLD:  return L->can_fold;
     case ACT_CHECK: return L->can_check && v == r->bet;
-    case ACT_CALL:  return L->can_call && v == L->call_to && v < all;
+    case ACT_CALL:  return L->can_call && v == L->call_to && v <= all;   /* all-in calls too */
     case ACT_BET:   return L->can_bet && v >= L->min_to && v <= L->max_to && v < all;
     case ACT_RAISE: return L->can_raise && v >= L->min_to && v <= L->max_to && v < all;
     case ACT_ALLIN:
-        return v == all && ((L->can_call && v == L->call_to) ||
-                            ((L->can_bet || L->can_raise) && v == L->max_to));
+        return v == all && (L->can_bet || L->can_raise) && v == L->max_to;   /* bets, raises */
     default: return 0;
     }
 }

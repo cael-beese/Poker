@@ -324,10 +324,10 @@ static void clamps_illegal_decisions(void)
     check_action(2, 5, ACT_CALL, 20);
     check_action(3, 0, ACT_ALLIN, 1000);
     check_action(4, 1, ACT_FOLD, 10);
-    check_action(5, 2, ACT_ALLIN, 1000);
+    check_action(5, 2, ACT_CALL, 1000);                  /* an all-in call is a call */
     CHECK_EQ_INT(t.turns[6].seat, 5);
     CHECK(!t.turns[6].legal.can_raise);
-    check_action(6, 5, ACT_ALLIN, 1000);
+    check_action(6, 5, ACT_CALL, 1000);
     CHECK_EQ_INT(th_count(&t, EV_HOLDEM_RUNOUT), 1);
 }
 
