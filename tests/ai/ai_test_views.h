@@ -44,6 +44,7 @@ static inline void tv_gen(Rng *r, AiView *v, HiddenState *hid)
   tv_shuffle(deck, 52, r);
 
   seats = 2 + (int)rng_below(r, 5);
+  if (seats > 6) seats = 6;   /* never true; tells GCC -O3 the bound (else -Wstringop-overflow) */
   street = (int)rng_below(r, 4);
   me = (int)rng_below(r, (uint32_t)seats);
   btn = (int)rng_below(r, (uint32_t)seats);

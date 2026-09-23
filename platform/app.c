@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 - see LICENSE.md */
 /* app.c - see app.h. */
 #include "platform/app.h"
+#include "platform/session.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -38,9 +39,8 @@ void app_init(AppCtx *ctx, uint64_t seed, AppState first)
 {
     memset(ctx, 0, sizeof *ctx);
     ctx->session_seed = seed;
-    /* Placeholder credits until persistence exists (platform milestone 7). */
-    ctx->wallet.credits = 1000;
-    ctx->wallet.denom = 1;
+    /* Credits, settings and stats come from the save file (session.h). */
+    session_init(ctx);
     for (int s = 0; s < APP_NSTATES; s++) {
         /* A mode may serve several states; initialise it once. */
         int seen = 0;
@@ -69,6 +69,7 @@ void app_tick(AppCtx *ctx, const InputFrame *in)
 
     for (int b = 0; b < 19; b++)          /* BTN_HOLD1 .. BTN_DEBUG */
         if (in->pressed & (1u << b)) ev_push(&ctx->events, APP_EV_BUTTON, b, 0, 0);
+    session_before_tick(ctx, in);      /* idle timer, coins */
 
     /* The service button works from every state except the service menu
      * itself and the GPU test (which is a measurement, not a game). */
@@ -79,6 +80,7 @@ void app_tick(AppCtx *ctx, const InputFrame *in)
 
     if (ctx->has_request) switch_state(ctx, ctx->request);
     ctx->has_request = 0;
+    session_after_tick(ctx);           /* saves at the end of a tick, never mid-way */
 
     g_frame_pressed |= in->pressed;
     ctx->input = *in;
@@ -105,10 +107,10 @@ void app_present(AppCtx *ctx, float dt)
 
 void app_shutdown(AppCtx *ctx)
 {
-    (void)ctx;
     for (int s = 0; s < APP_NSTATES; s++) {
         int seen = 0;
         for (int t = 0; t < s; t++) if (app_modes[t] == app_modes[s]) seen = 1;
         if (!seen && app_modes[s] && app_modes[s]->shutdown) app_modes[s]->shutdown();
     }
+    session_shutdown(ctx);             /* the last save, after the modes settle up */
 }
