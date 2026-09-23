@@ -34,3 +34,11 @@ if(TARGET bpl_audio)
   target_compile_definitions(bpl_render PRIVATE BPL_HAVE_AUDIO=1)
 endif()
 target_compile_options(bpl_render PRIVATE -Wall -Wextra -Werror)
+
+# render-bench (the Pi): the RENDERTEST scenes rendered headless on the GPU's
+# render node, for GPU cost without taking over the cabinet's display.
+if(BPL_PLATFORM STREQUAL "DRM")
+  add_executable(render-bench render_bench.c)
+  target_link_libraries(render-bench PRIVATE bpl_render bpl_platform)
+  target_compile_options(render-bench PRIVATE -Wall -Wextra -Werror)
+endif()

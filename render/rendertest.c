@@ -187,7 +187,8 @@ static void rt_enter(AppCtx *ctx, AppState from)
     (void)ctx; (void)from;
 #if defined(BPL_HAVE_AUDIO)
     static int tried;
-    if (!tried) {
+    /* BPL_NO_AUDIO: measurement tools (render-bench) must stay silent. */
+    if (!tried && !getenv("BPL_NO_AUDIO")) {
         tried = 1;
         AudioStats st;
         audio_get_stats(&st);
