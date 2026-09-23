@@ -1,0 +1,405 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 - see LICENSE.md
+#
+# raylib-5.5-drm-plane.patch - applied to platforms/rcore_drm.c by
+# tools/fetch_raylib.sh.
+#
+# Why: presenting a 3440x1440 frame with the GPU costs ~8.7 ms of the Pi 4's
+# 16.7 ms just to clear and store the framebuffer (memory bandwidth), plus
+# ~3.9 ms for the 2x upscale and ~2.9 ms for the side art (measured on the
+# cabinet). The Pi's display controller (HVS) can scale a plane at scan-out
+# for free. With this patch the GL surface is only the 1280x720 play space;
+# it is shown on an overlay plane scaled to a destination rectangle, over a
+# static background framebuffer (the side art) on the primary plane.
+#
+# API (declared by the game in platform/drm_present.h):
+#   void BplDrmConfigurePlane(int surfaceW, int surfaceH, int dstX, int dstY,
+#                             int dstW, int dstH, int nearest);  // before InitWindow
+#   int  BplDrmPlaneActive(void);        // after InitWindow: plane path in use
+#   int  BplDrmPlaneNearest(void);       // nearest-neighbour scaling in use
+#   int  BplDrmSetBackground(const unsigned char *rgba, int w, int h);
+#
+# Also: presentation uses atomic commits with page-flip events (vsync) and
+# caches one framebuffer per GBM buffer, instead of raylib's per-frame
+# drmModeAddFB + drmModeSetCrtc + drmModeRmFB. Without atomic KMS or a free
+# overlay plane the unmodified raylib path is used.
+--- a/platforms/rcore_drm.c
++++ b/platforms/rcore_drm.c
+@@ -71,6 +71,9 @@
+ #include "EGL/egl.h"        // Native platform windowing system interface
+ #include "EGL/eglext.h"     // EGL extensions
+ 
++#include <poll.h>           // BPL: waiting for page-flip events
++#include <sys/mman.h>       // BPL: mapping the background dumb buffer
++
+ #ifndef EGL_OPENGL_ES3_BIT
+     #define EGL_OPENGL_ES3_BIT  0x40
+ #endif
+@@ -137,6 +140,307 @@
+ static PlatformData platform = { 0 };   // Platform specific data
+ 
+ //----------------------------------------------------------------------------------
++// BPL: present the render surface through a scaled DRM overlay plane.
++// Beese's Poker Lounge, tools/raylib-5.5-drm-plane.patch: the GL surface is
++// the game's play space (e.g. 1280x720); the display controller scales it
++// onto the screen at scan-out (free), over a static background framebuffer on
++// the primary plane. Uses atomic KMS with page-flip events (vsync). If the
++// driver lacks atomic/planes, raylib's normal full-screen path is used.
++//----------------------------------------------------------------------------------
++typedef struct {
++    int requested, active, nearest;
++    int surfW, surfH, dstX, dstY, dstW, dstH;
++    int modeW, modeH;
++    uint32_t crtcId, connId, modeBlob;
++    uint32_t primaryId, overlayId;
++    uint32_t connCrtcProp, crtcModeProp, crtcActiveProp;
++    uint32_t pp[10], op[10];            // primary / overlay plane property ids, order of bplPlaneProps
++    uint32_t scalingProp;
++    uint64_t scalingNearest;
++    uint32_t bgFb, bgHandle, bgPitch;
++    uint64_t bgSize, bgMapOffset;
++    int committed, flipPending;
++} BplPlane;
++
++static BplPlane bplPlane = { 0 };
++static const char *const bplPlaneProps[10] = {
++    "FB_ID", "CRTC_ID", "SRC_X", "SRC_Y", "SRC_W", "SRC_H", "CRTC_X", "CRTC_Y", "CRTC_W", "CRTC_H"
++};
++
++// Call before InitWindow(): surface size and where it goes on the display.
++void BplDrmConfigurePlane(int surfaceWidth, int surfaceHeight, int dstX, int dstY, int dstWidth, int dstHeight, int nearest)
++{
++    bplPlane.requested = 1;
++    bplPlane.surfW = surfaceWidth; bplPlane.surfH = surfaceHeight;
++    bplPlane.dstX = dstX; bplPlane.dstY = dstY; bplPlane.dstW = dstWidth; bplPlane.dstH = dstHeight;
++    bplPlane.nearest = nearest;
++}
++
++// After InitWindow(): 1 when the plane path is in use.
++int BplDrmPlaneActive(void) { return bplPlane.active; }
++
++// After InitWindow(): 1 when the overlay uses nearest-neighbour scaling.
++int BplDrmPlaneNearest(void) { return bplPlane.active && bplPlane.nearest && bplPlane.scalingProp; }
++
++// Fills the background (primary plane) from mode-sized RGBA8 pixels, top row first.
++int BplDrmSetBackground(const unsigned char *rgba, int width, int height)
++{
++    if (!bplPlane.active || !bplPlane.bgHandle || (width != bplPlane.modeW) || (height != bplPlane.modeH)) return -1;
++    // Mapped only while writing: a permanent mapping of the 20 MB buffer
++    // would count towards the process's resident memory.
++    void *map = mmap(NULL, bplPlane.bgSize, PROT_READ | PROT_WRITE, MAP_SHARED, platform.fd, bplPlane.bgMapOffset);
++    if (map == MAP_FAILED) return -1;
++    for (int y = 0; y < height; y++)
++    {
++        const unsigned char *src = rgba + (size_t)y*width*4;
++        unsigned char *dst = (unsigned char *)map + (size_t)y*bplPlane.bgPitch;
++        for (int x = 0; x < width; x++, src += 4, dst += 4)
++        {
++            dst[0] = src[2]; dst[1] = src[1]; dst[2] = src[0]; dst[3] = 255;   // XRGB8888 is B,G,R,X in memory
++        }
++    }
++    munmap(map, bplPlane.bgSize);
++    return 0;
++}
++
++static uint32_t BplFindProp(uint32_t objId, uint32_t objType, const char *name, drmModePropertyRes **keep)
++{
++    uint32_t id = 0;
++    drmModeObjectProperties *props = drmModeObjectGetProperties(platform.fd, objId, objType);
++    for (uint32_t i = 0; props && (i < props->count_props) && !id; i++)
++    {
++        drmModePropertyRes *p = drmModeGetProperty(platform.fd, props->props[i]);
++        if (p && (strcmp(p->name, name) == 0))
++        {
++            id = p->prop_id;
++            if (keep) { *keep = p; p = NULL; }
++        }
++        if (p) drmModeFreeProperty(p);
++    }
++    if (props) drmModeFreeObjectProperties(props);
++    return id;
++}
++
++static uint64_t BplPropValue(uint32_t objId, uint32_t objType, const char *name)
++{
++    uint64_t value = (uint64_t)-1;
++    drmModeObjectProperties *props = drmModeObjectGetProperties(platform.fd, objId, objType);
++    for (uint32_t i = 0; props && (i < props->count_props); i++)
++    {
++        drmModePropertyRes *p = drmModeGetProperty(platform.fd, props->props[i]);
++        if (p && (strcmp(p->name, name) == 0)) value = props->prop_values[i];
++        if (p) drmModeFreeProperty(p);
++    }
++    if (props) drmModeFreeObjectProperties(props);
++    return value;
++}
++
++// Finds the planes and property ids and creates the background buffer.
++static int BplPlaneSetup(void)
++{
++    drmModeModeInfo *mode = &platform.connector->modes[platform.modeIndex];
++    bplPlane.modeW = mode->hdisplay;
++    bplPlane.modeH = mode->vdisplay;
++    bplPlane.crtcId = platform.crtc->crtc_id;
++    bplPlane.connId = platform.connector->connector_id;
++
++    if (drmSetClientCap(platform.fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1) || drmSetClientCap(platform.fd, DRM_CLIENT_CAP_ATOMIC, 1))
++    {
++        TRACELOG(LOG_WARNING, "DISPLAY: BPL plane: no atomic modesetting, using full-screen rendering");
++        return -1;
++    }
++
++    int crtcIndex = -1;
++    drmModeRes *res = drmModeGetResources(platform.fd);
++    for (int i = 0; res && (i < res->count_crtcs); i++) if (res->crtcs[i] == bplPlane.crtcId) crtcIndex = i;
++    if (res) drmModeFreeResources(res);
++
++    drmModePlaneRes *planes = drmModeGetPlaneResources(platform.fd);
++    for (uint32_t i = 0; planes && (i < planes->count_planes) && (crtcIndex >= 0); i++)
++    {
++        drmModePlane *pl = drmModeGetPlane(platform.fd, planes->planes[i]);
++        if (!pl) continue;
++        int usable = (pl->possible_crtcs & (1u << crtcIndex)) != 0, xrgb = 0;
++        for (uint32_t f = 0; f < pl->count_formats; f++) if (pl->formats[f] == GBM_FORMAT_XRGB8888) xrgb = 1;
++        uint64_t type = BplPropValue(pl->plane_id, DRM_MODE_OBJECT_PLANE, "type");
++        if (usable && xrgb)
++        {
++            if ((type == DRM_PLANE_TYPE_PRIMARY) && !bplPlane.primaryId) bplPlane.primaryId = pl->plane_id;
++            else if ((type == DRM_PLANE_TYPE_OVERLAY) && !bplPlane.overlayId) bplPlane.overlayId = pl->plane_id;
++        }
++        drmModeFreePlane(pl);
++    }
++    if (planes) drmModeFreePlaneResources(planes);
++    if (!bplPlane.primaryId || !bplPlane.overlayId)
++    {
++        TRACELOG(LOG_WARNING, "DISPLAY: BPL plane: no primary/overlay plane pair, using full-screen rendering");
++        return -1;
++    }
++
++    for (int i = 0; i < 10; i++)
++    {
++        bplPlane.pp[i] = BplFindProp(bplPlane.primaryId, DRM_MODE_OBJECT_PLANE, bplPlaneProps[i], NULL);
++        bplPlane.op[i] = BplFindProp(bplPlane.overlayId, DRM_MODE_OBJECT_PLANE, bplPlaneProps[i], NULL);
++        if (!bplPlane.pp[i] || !bplPlane.op[i]) { TRACELOG(LOG_WARNING, "DISPLAY: BPL plane: property %s missing", bplPlaneProps[i]); return -1; }
++    }
++    bplPlane.connCrtcProp = BplFindProp(bplPlane.connId, DRM_MODE_OBJECT_CONNECTOR, "CRTC_ID", NULL);
++    bplPlane.crtcModeProp = BplFindProp(bplPlane.crtcId, DRM_MODE_OBJECT_CRTC, "MODE_ID", NULL);
++    bplPlane.crtcActiveProp = BplFindProp(bplPlane.crtcId, DRM_MODE_OBJECT_CRTC, "ACTIVE", NULL);
++    if (!bplPlane.connCrtcProp || !bplPlane.crtcModeProp || !bplPlane.crtcActiveProp) return -1;
++
++    // Nearest-neighbour scaling, where the kernel offers it (exact at integer scales).
++    if (bplPlane.nearest)
++    {
++        drmModePropertyRes *sp = NULL;
++        bplPlane.scalingProp = BplFindProp(bplPlane.overlayId, DRM_MODE_OBJECT_PLANE, "SCALING_FILTER", &sp);
++        int found = 0;
++        for (int e = 0; sp && (e < sp->count_enums); e++)
++        {
++            if (strcmp(sp->enums[e].name, "Nearest Neighbor") == 0) { bplPlane.scalingNearest = sp->enums[e].value; found = 1; }
++        }
++        if (sp) drmModeFreeProperty(sp);
++        if (!found) bplPlane.scalingProp = 0;
++        TRACELOG(LOG_INFO, "DISPLAY: BPL plane: nearest-neighbour scaling %s", found? "available" : "not available (default filter)");
++    }
++
++    if (drmModeCreatePropertyBlob(platform.fd, mode, sizeof(*mode), &bplPlane.modeBlob)) return -1;
++
++    struct drm_mode_create_dumb creq = { 0 };
++    creq.width = bplPlane.modeW; creq.height = bplPlane.modeH; creq.bpp = 32;
++    if (drmIoctl(platform.fd, DRM_IOCTL_MODE_CREATE_DUMB, &creq)) { TRACELOG(LOG_WARNING, "DISPLAY: BPL plane: no dumb buffer"); return -1; }
++    bplPlane.bgHandle = creq.handle; bplPlane.bgPitch = creq.pitch; bplPlane.bgSize = creq.size;
++    uint32_t handles[4] = { creq.handle }, pitches[4] = { creq.pitch }, offsets[4] = { 0 };
++    if (drmModeAddFB2(platform.fd, bplPlane.modeW, bplPlane.modeH, GBM_FORMAT_XRGB8888, handles, pitches, offsets, &bplPlane.bgFb, 0)) return -1;
++    struct drm_mode_map_dumb mreq = { 0 };
++    mreq.handle = creq.handle;
++    if (drmIoctl(platform.fd, DRM_IOCTL_MODE_MAP_DUMB, &mreq)) return -1;
++    bplPlane.bgMapOffset = mreq.offset;
++    void *map = mmap(NULL, creq.size, PROT_READ | PROT_WRITE, MAP_SHARED, platform.fd, mreq.offset);
++    if (map == MAP_FAILED) return -1;
++    memset(map, 0, creq.size);   // black until the game sets its side art
++    munmap(map, creq.size);
++
++    bplPlane.active = 1;
++    TRACELOG(LOG_INFO, "DISPLAY: BPL plane: %dx%d surface on plane %u -> %d,%d %dx%d, background on plane %u",
++        bplPlane.surfW, bplPlane.surfH, bplPlane.overlayId, bplPlane.dstX, bplPlane.dstY, bplPlane.dstW, bplPlane.dstH, bplPlane.primaryId);
++    return 0;
++}
++
++static void BplDestroyFb(struct gbm_bo *bo, void *data)
++{
++    uint32_t *fb = (uint32_t *)data;
++    if (fb) { drmModeRmFB(gbm_device_get_fd(gbm_bo_get_device(bo)), *fb); RL_FREE(fb); }
++}
++
++// One framebuffer per GBM buffer, made once and cached on the buffer.
++static uint32_t BplFbForBo(struct gbm_bo *bo)
++{
++    uint32_t *cached = (uint32_t *)gbm_bo_get_user_data(bo);
++    if (cached) return *cached;
++    uint32_t handles[4] = { gbm_bo_get_handle(bo).u32 }, pitches[4] = { gbm_bo_get_stride(bo) }, offsets[4] = { 0 }, fb = 0;
++    // XRGB, not ARGB: the play space is opaque and its alpha must not blend with the background.
++    if (drmModeAddFB2(platform.fd, gbm_bo_get_width(bo), gbm_bo_get_height(bo), GBM_FORMAT_XRGB8888, handles, pitches, offsets, &fb, 0))
++    {
++        TRACELOG(LOG_ERROR, "DISPLAY: BPL plane: drmModeAddFB2 failed");
++        return 0;
++    }
++    cached = (uint32_t *)RL_MALLOC(sizeof(uint32_t));
++    *cached = fb;
++    gbm_bo_set_user_data(bo, cached, BplDestroyFb);
++    return fb;
++}
++
++static void BplFlipHandler(int fd, unsigned int sequence, unsigned int sec, unsigned int usec, void *data)
++{
++    (void)fd; (void)sequence; (void)sec; (void)usec; (void)data;
++    bplPlane.flipPending = 0;
++}
++
++static void BplAddPlane(drmModeAtomicReq *req, const uint32_t *props, uint32_t planeId, uint32_t fb,
++                        int sw, int sh, int dx, int dy, int dw, int dh)
++{
++    const uint64_t v[10] = { fb, bplPlane.crtcId, 0, 0, (uint64_t)sw << 16, (uint64_t)sh << 16,
++                             (uint64_t)dx, (uint64_t)dy, (uint64_t)dw, (uint64_t)dh };
++    for (int i = 0; i < 10; i++) drmModeAtomicAddProperty(req, planeId, props[i], v[i]);
++}
++
++static void BplSwap(void)
++{
++    eglSwapBuffers(platform.device, platform.surface);
++    struct gbm_bo *bo = gbm_surface_lock_front_buffer(platform.gbmSurface);
++    if (!bo) { TRACELOG(LOG_ERROR, "DISPLAY: Failed GBM to lock front buffer"); return; }
++    uint32_t fb = BplFbForBo(bo);
++
++    drmModeAtomicReq *req = drmModeAtomicAlloc();
++    uint32_t flags;
++    if (!bplPlane.committed)
++    {
++        drmModeAtomicAddProperty(req, bplPlane.connId, bplPlane.connCrtcProp, bplPlane.crtcId);
++        drmModeAtomicAddProperty(req, bplPlane.crtcId, bplPlane.crtcModeProp, bplPlane.modeBlob);
++        drmModeAtomicAddProperty(req, bplPlane.crtcId, bplPlane.crtcActiveProp, 1);
++        BplAddPlane(req, bplPlane.pp, bplPlane.primaryId, bplPlane.bgFb, bplPlane.modeW, bplPlane.modeH, 0, 0, bplPlane.modeW, bplPlane.modeH);
++        BplAddPlane(req, bplPlane.op, bplPlane.overlayId, fb, bplPlane.surfW, bplPlane.surfH, bplPlane.dstX, bplPlane.dstY, bplPlane.dstW, bplPlane.dstH);
++        if (bplPlane.scalingProp) drmModeAtomicAddProperty(req, bplPlane.overlayId, bplPlane.scalingProp, bplPlane.scalingNearest);
++        flags = DRM_MODE_ATOMIC_ALLOW_MODESET;
++    }
++    else
++    {
++        drmModeAtomicAddProperty(req, bplPlane.overlayId, bplPlane.op[0], fb);
++        flags = DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT;
++    }
++    int result = drmModeAtomicCommit(platform.fd, req, flags, NULL);
++    drmModeAtomicFree(req);
++
++    if (result != 0) TRACELOG(LOG_ERROR, "DISPLAY: BPL plane: atomic commit failed: %d", result);
++    else
++    {
++        bplPlane.committed = 1;
++        if (flags & DRM_MODE_PAGE_FLIP_EVENT)
++        {
++            // Wait for the flip: the new buffer is on screen, the previous one is free.
++            drmEventContext ev = { 0 };
++            ev.version = 2;
++            ev.page_flip_handler = BplFlipHandler;
++            bplPlane.flipPending = 1;
++            while (bplPlane.flipPending)
++            {
++                struct pollfd pfd = { platform.fd, POLLIN, 0 };
++                if (poll(&pfd, 1, 200) <= 0) { TRACELOG(LOG_WARNING, "DISPLAY: BPL plane: no flip event"); bplPlane.flipPending = 0; break; }
++                drmHandleEvent(platform.fd, &ev);
++            }
++        }
++    }
++
++    if (platform.prevBO) gbm_surface_release_buffer(platform.gbmSurface, platform.prevBO);
++    platform.prevBO = bo;
++}
++
++// Takes the planes off the CRTC before raylib restores the original mode.
++static void BplPlaneClose(void)
++{
++    if (!bplPlane.active || !bplPlane.committed) return;
++    drmModeAtomicReq *req = drmModeAtomicAlloc();
++    drmModeAtomicAddProperty(req, bplPlane.overlayId, bplPlane.op[0], 0);
++    drmModeAtomicAddProperty(req, bplPlane.overlayId, bplPlane.op[1], 0);
++    drmModeAtomicCommit(platform.fd, req, DRM_MODE_ATOMIC_ALLOW_MODESET, NULL);
++    drmModeAtomicFree(req);
++}
++
++static void BplPlaneFreeBackground(void)
++{
++    if (!bplPlane.active) return;
++    if (bplPlane.bgFb) drmModeRmFB(platform.fd, bplPlane.bgFb);
++    if (bplPlane.bgHandle)
++    {
++        struct drm_mode_destroy_dumb dreq = { 0 };
++        dreq.handle = bplPlane.bgHandle;
++        drmIoctl(platform.fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dreq);
++    }
++    if (bplPlane.modeBlob) drmModeDestroyPropertyBlob(platform.fd, bplPlane.modeBlob);
++    memset(&bplPlane, 0, sizeof(bplPlane));
++}
++
++//----------------------------------------------------------------------------------
+ // Local Variables Definition
+ //----------------------------------------------------------------------------------
+ 
+@@ -544,6 +848,8 @@
+ // Swap back buffer with front buffer (screen drawing)
+ void SwapScreenBuffer(void)
+ {
++    if (bplPlane.active) { BplSwap(); return; }    // BPL
++
+     eglSwapBuffers(platform.device, platform.surface);
+ 
+     if (!platform.gbmSurface || (-1 == platform.fd) || !platform.connector || !platform.crtc) TRACELOG(LOG_ERROR, "DISPLAY: DRM initialization failed to swap");
+@@ -854,6 +1160,22 @@
+         (platform.connector->modes[platform.modeIndex].flags & DRM_MODE_FLAG_INTERLACE)? 'i' : 'p',
+         platform.connector->modes[platform.modeIndex].vrefresh);
+ 
++    // BPL: with a plane, the GL surface is the requested play-space size and
++    // the screen size raylib reports is that size, not the display mode's.
++    int surfaceWidth = platform.connector->modes[platform.modeIndex].hdisplay;
++    int surfaceHeight = platform.connector->modes[platform.modeIndex].vdisplay;
++    if (bplPlane.requested && (BplPlaneSetup() == 0))
++    {
++        surfaceWidth = bplPlane.surfW;
++        surfaceHeight = bplPlane.surfH;
++        CORE.Window.screen.width = surfaceWidth;
++        CORE.Window.screen.height = surfaceHeight;
++        // SetupFramebuffer() reads CORE.Window.display, not its arguments; a
++        // display larger than the screen would make it add a render offset.
++        CORE.Window.display.width = surfaceWidth;
++        CORE.Window.display.height = surfaceHeight;
++    }
++
+     // Use the width and height of the surface for render
+     CORE.Window.render.width = CORE.Window.screen.width;
+     CORE.Window.render.height = CORE.Window.screen.height;
+@@ -871,8 +1193,8 @@
+         return -1;
+     }
+ 
+-    platform.gbmSurface = gbm_surface_create(platform.gbmDevice, platform.connector->modes[platform.modeIndex].hdisplay,
+-        platform.connector->modes[platform.modeIndex].vdisplay, GBM_FORMAT_ARGB8888, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
++    platform.gbmSurface = gbm_surface_create(platform.gbmDevice, surfaceWidth, surfaceHeight,
++        GBM_FORMAT_ARGB8888, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);   // BPL: surface size
+     if (!platform.gbmSurface)
+     {
+         TRACELOG(LOG_WARNING, "DISPLAY: Failed to create GBM surface");
+@@ -1078,6 +1400,8 @@
+ // Close platform
+ void ClosePlatform(void)
+ {
++    BplPlaneClose();   // BPL
++
+     if (platform.prevFB)
+     {
+         drmModeRmFB(platform.fd, platform.prevFB);
+@@ -1116,6 +1440,8 @@
+         platform.crtc = NULL;
+     }
+ 
++    BplPlaneFreeBackground();   // BPL: after the original CRTC state is back
++
+     if (platform.fd != -1)
+     {
+         close(platform.fd);

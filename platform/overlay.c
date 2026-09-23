@@ -1,0 +1,46 @@
+/* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 - see LICENSE.md */
+/* overlay.c - see overlay.h. */
+#include "platform/overlay.h"
+
+#include <stdio.h>
+
+#include "raylib.h"
+#include "rlgl.h"
+#include "platform/screen.h"
+#include "platform/texreg.h"
+
+void overlay_draw(const PerfRing *ring, const PerfFrame *last, const AppCtx *ctx, long rss_kb,
+                  double startup_ms)
+{
+    double avg, max, logic, render, compose, swap;
+    perf_ring_stats(ring, &avg, &max, &logic, &render, &compose, &swap);
+    const ScreenLayout *L = screen_layout();
+    int k = GetScreenHeight() / 720;
+    if (k < 1) k = 1;
+    int size = 20 * k, lh = 24 * k, x = 12 * k, y = 12 * k;
+
+    char lines[8][128];
+    int n = 0;
+    snprintf(lines[n++], sizeof lines[0], "FPS %.1f   frame %.2f ms (avg %.2f, max %.2f)",
+             avg > 0 ? 1000.0 / avg : 0.0, last->frame_ms, avg, max);
+    snprintf(lines[n++], sizeof lines[0], "logic %.2f  render %.2f  compose %.2f  swap %.2f ms",
+             logic, render, compose, swap);
+    snprintf(lines[n++], sizeof lines[0], "draw calls %u   ticks/frame %d", last->draw_calls, last->ticks);
+    snprintf(lines[n++], sizeof lines[0], "RSS %.1f MB   textures %.2f MB (%d)", rss_kb / 1024.0,
+             texreg_bytes() / (1024.0 * 1024.0), texreg_count());
+    snprintf(lines[n++], sizeof lines[0], "%s  tick %llu  seed %016llx", app_state_name(ctx->state),
+             (unsigned long long)ctx->tick, (unsigned long long)ctx->session_seed);
+    snprintf(lines[n++], sizeof lines[0], "%dx%d  play %.2fx %s %s  GL %s  start %.0f ms", L->screen_w, L->screen_h,
+             L->scale, L->point ? "point" : "bilinear", L->plane ? "plane" : "gpu",
+             rlGetVersion() == RL_OPENGL_ES_20 ? "ES2" : rlGetVersion() == RL_OPENGL_ES_30 ? "ES3" : "3.3",
+             startup_ms);
+
+    int w = 0;
+    for (int i = 0; i < n; i++) {
+        int tw = MeasureText(lines[i], size);
+        if (tw > w) w = tw;
+    }
+    DrawRectangle(x - 6 * k, y - 6 * k, w + 12 * k, n * lh + 8 * k, (Color){ 0, 0, 0, 190 });
+    for (int i = 0; i < n; i++)
+        DrawText(lines[i], x, y + i * lh, size, i == 0 ? (Color){ 255, 210, 90, 255 } : RAYWHITE);
+}
