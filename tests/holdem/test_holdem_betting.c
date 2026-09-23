@@ -282,6 +282,30 @@ static void short_small_blind(void)
     CHECK_EQ_INT(t.g.seat[1].stack + t.g.seat[2].stack, 1007);
 }
 
+static void short_big_blind(void)
+{
+    /* The big blind has 15 of the 20: the others must still call 20, and
+       the minimum raise is still to 40. The short blind can only win the
+       main pot of 15 from each caller. */
+    static const int64_t st[6] = { 1000, 1000, 15, 1000, 1000, 1000 };
+    static const Step sc[] = {
+        { 3, ACT_CALL, 0, 0 },  { 4, ACT_FOLD, 0, 0 }, { 5, ACT_FOLD, 0, 0 },
+        { 0, ACT_FOLD, 0, 0 },  { 1, ACT_CALL, 0, 0 },
+        { 1, ACT_CHECK, 0, 0 }, { 3, ACT_CHECK, 0, 0 },
+        { 1, ACT_CHECK, 0, 0 }, { 3, ACT_CHECK, 0, 0 },
+        { 1, ACT_CHECK, 0, 0 }, { 3, ACT_CHECK, 0, 0 },
+    };
+    start(st, 0, 0);
+    run(sc, 11);
+    CHECK_EQ_INT(t.turns[0].legal.call_to, 20);
+    CHECK_EQ_INT(t.turns[0].legal.min_to, 40);
+    check_action(0, 3, ACT_CALL, 20);
+    check_action(4, 1, ACT_CALL, 20);
+    CHECK_EQ_INT(t.turns[5].seat, 1);                    /* the all-in big blind never acts */
+    CHECK_EQ_INT(th_nth(&t, EV_HOLDEM_POT, 0)->v, 45);  /* 15 x 3 */
+    CHECK_EQ_INT(th_nth(&t, EV_HOLDEM_POT, 1)->v, 10);  /* 5 x 2  */
+}
+
 static void clamps_illegal_decisions(void)
 {
     static const Step sc[] = {
@@ -427,6 +451,7 @@ int main(void)
     heads_up_order();
     incomplete_bet_below_big_blind();
     short_small_blind();
+    short_big_blind();
     clamps_illegal_decisions();
     think_time();
     human_input();
