@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 - see LICENSE.md
+#
+# raylib-5.5-orphan-vbo.patch - applied to rlgl.h by tools/fetch_raylib.sh.
+#
+# rlDrawRenderBatch() re-uploads its one dynamic vertex buffer with
+# glBufferSubData() on every batch flush. On a tile-based GPU (the Pi 4's
+# V3D, Mesa v3d driver) writing a buffer that a queued draw still reads makes
+# the driver submit the current render job and wait for it. Each extra flush
+# in a frame (a texture, shader, blend or primitive-mode change) therefore
+# splits the render pass, and every split stores and reloads the whole render
+# target: 20 MB each way at 3440x1440. Measured on the cabinet before this
+# patch: an almost empty 3440x1440 compose took 30.8 ms of GPU time.
+#
+# glBufferData() on the same buffer "orphans" it instead: the driver gives the
+# buffer fresh storage and the queued draw keeps the old one, so nothing
+# waits and the render pass is not split. Only the used size is uploaded.
+--- a/rlgl.h
++++ b/rlgl.h
+@@ -2915,22 +2915,22 @@
+ 
+         // Vertex positions buffer
+         glBindBuffer(GL_ARRAY_BUFFER, batch->vertexBuffer[batch->currentBuffer].vboId[0]);
+-        glBufferSubData(GL_ARRAY_BUFFER, 0, RLGL.State.vertexCounter*3*sizeof(float), batch->vertexBuffer[batch->currentBuffer].vertices);
++        glBufferData(GL_ARRAY_BUFFER, RLGL.State.vertexCounter*3*sizeof(float), batch->vertexBuffer[batch->currentBuffer].vertices, GL_DYNAMIC_DRAW);   // BPL: orphan instead of in-place update (see tools/raylib-5.5-orphan-vbo.patch)
+         //glBufferData(GL_ARRAY_BUFFER, sizeof(float)*3*4*batch->vertexBuffer[batch->currentBuffer].elementCount, batch->vertexBuffer[batch->currentBuffer].vertices, GL_DYNAMIC_DRAW);  // Update all buffer
+ 
+         // Texture coordinates buffer
+         glBindBuffer(GL_ARRAY_BUFFER, batch->vertexBuffer[batch->currentBuffer].vboId[1]);
+-        glBufferSubData(GL_ARRAY_BUFFER, 0, RLGL.State.vertexCounter*2*sizeof(float), batch->vertexBuffer[batch->currentBuffer].texcoords);
++        glBufferData(GL_ARRAY_BUFFER, RLGL.State.vertexCounter*2*sizeof(float), batch->vertexBuffer[batch->currentBuffer].texcoords, GL_DYNAMIC_DRAW);   // BPL: orphan instead of in-place update (see tools/raylib-5.5-orphan-vbo.patch)
+         //glBufferData(GL_ARRAY_BUFFER, sizeof(float)*2*4*batch->vertexBuffer[batch->currentBuffer].elementCount, batch->vertexBuffer[batch->currentBuffer].texcoords, GL_DYNAMIC_DRAW); // Update all buffer
+ 
+         // Normals buffer
+         glBindBuffer(GL_ARRAY_BUFFER, batch->vertexBuffer[batch->currentBuffer].vboId[2]);
+-        glBufferSubData(GL_ARRAY_BUFFER, 0, RLGL.State.vertexCounter*3*sizeof(float), batch->vertexBuffer[batch->currentBuffer].normals);
++        glBufferData(GL_ARRAY_BUFFER, RLGL.State.vertexCounter*3*sizeof(float), batch->vertexBuffer[batch->currentBuffer].normals, GL_DYNAMIC_DRAW);   // BPL: orphan instead of in-place update (see tools/raylib-5.5-orphan-vbo.patch)
+         //glBufferData(GL_ARRAY_BUFFER, sizeof(float)*3*4*batch->vertexBuffer[batch->currentBuffer].elementCount, batch->vertexBuffer[batch->currentBuffer].normals, GL_DYNAMIC_DRAW); // Update all buffer
+ 
+         // Colors buffer
+         glBindBuffer(GL_ARRAY_BUFFER, batch->vertexBuffer[batch->currentBuffer].vboId[3]);
+-        glBufferSubData(GL_ARRAY_BUFFER, 0, RLGL.State.vertexCounter*4*sizeof(unsigned char), batch->vertexBuffer[batch->currentBuffer].colors);
++        glBufferData(GL_ARRAY_BUFFER, RLGL.State.vertexCounter*4*sizeof(unsigned char), batch->vertexBuffer[batch->currentBuffer].colors, GL_DYNAMIC_DRAW);   // BPL: orphan instead of in-place update (see tools/raylib-5.5-orphan-vbo.patch)
+         //glBufferData(GL_ARRAY_BUFFER, sizeof(float)*4*4*batch->vertexBuffer[batch->currentBuffer].elementCount, batch->vertexBuffer[batch->currentBuffer].colors, GL_DYNAMIC_DRAW);    // Update all buffer
+ 
+         // NOTE: glMapBuffer() causes sync issue
