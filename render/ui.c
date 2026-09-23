@@ -13,6 +13,7 @@
 #include "platform/texreg.h"
 #include "render/art.h"
 #include "render/fx.h"
+#include "render/post.h"
 #include "render/sprites.h"
 #include "rlgl.h"
 
@@ -181,13 +182,15 @@ void ui_background(double time, float dim)
 {
     Spr s = { 0, 0, 1, 1, BG_W, BG_H, g_bg.id };
     unsigned char v = (unsigned char)(255 * clampf(dim, 0, 1));
-    /* The backdrop covers everything: draw it with blending off (it is the
-     * frame's largest fill), in a batch of its own. */
-    gfx_flush();
-    rlDisableColorBlend();
-    gfx_spr(&s, 0, 0, BG_W, BG_H, (PCol){ v, v, v, 255 });
-    gfx_flush();
-    rlEnableColorBlend();
+    /* With bloom on, the backdrop rides on the bloom composite (no pass of
+     * its own). Otherwise it covers everything: blending off, own batch. */
+    if (!post_backdrop(g_bg.id, clampf(dim, 0, 1))) {
+        gfx_flush();
+        rlDisableColorBlend();
+        gfx_spr(&s, 0, 0, BG_W, BG_H, (PCol){ v, v, v, 255 });
+        gfx_flush();
+        rlEnableColorBlend();
+    }
     /* A few hex cells breathing with light, on the background's own grid. */
     const float w = 1.7320508f * k_hex_r;
     static const short cells[][2] = { { 2, 3 }, { 5, 9 }, { 9, 2 }, { 13, 11 }, { 16, 5 }, { 19, 12 }, { 4, 13 }, { 11, 7 }, { 20, 2 } };
@@ -225,12 +228,14 @@ void ui_panel(Rectangle r, Color neon, float glow_k, float alpha)
 {
     const Nine *fill = sprite_nine(NINE_RRECT), *line = sprite_nine(NINE_RRECT_LINE), *glow = sprite_nine(NINE_GLOW);
     if (glow_k > 0) gfx_nine(glow, r.x - 24, r.y - 24, r.width + 48, r.height + 48, 40, gfx_add(neon, 0.8f * glow_k * alpha));
-    gfx_nine(fill, r.x, r.y, r.width, r.height, 16, gfx_cola((Color){ 16, 10, 20, 255 }, 0.86f * alpha));
-    /* Glass: a lighter top fading down. */
-    gfx_nine(sprite_nine(NINE_PANEL), r.x + 2, r.y + 2, r.width - 4, fminf(r.height * 0.5f, 60), 14,
-             gfx_cola((Color){ 255, 255, 255, 255 }, 0.05f * alpha));
-    gfx_nine(line, r.x, r.y, r.width, r.height, 16, gfx_cola(neon, alpha));
-    gfx_nine(line, r.x + 1, r.y + 1, r.width - 2, r.height - 2, 15, gfx_add(WHITE, 0.25f * alpha));
+    /* Dark glass, a little lighter at the top: one gradient fill rather than
+     * a fill plus a sheen layer (panels are large; every layer is fill). */
+    gfx_nine_vgrad(fill, r.x, r.y, r.width, r.height, 16, gfx_cola((Color){ 30, 22, 36, 255 }, 0.88f * alpha),
+                   gfx_cola((Color){ 12, 8, 15, 255 }, 0.88f * alpha));
+    /* The tube: the neon colour run hot towards white, in one outline. */
+    Color hot = { (unsigned char)(neon.r + (255 - neon.r) * 0.3f), (unsigned char)(neon.g + (255 - neon.g) * 0.3f),
+                  (unsigned char)(neon.b + (255 - neon.b) * 0.3f), neon.a };
+    gfx_nine(line, r.x, r.y, r.width, r.height, 16, gfx_cola(hot, alpha));
 }
 
 void ui_button_press(UiButton *b) { b->press = 1.0f; }
@@ -350,7 +355,10 @@ static void mq_glyph(int i, float *dx, float *dy, float *sc, float *al, Color *t
     const MqCtx *c = user;
     (void)dx; (void)dy; (void)sc;
     float p = c->m->pow[c->base + i < 24 ? c->base + i : 23];
-    if (c->lit) {
+    if (!c->lit) {
+        /* Unlit glass shows only where the gas is not fully lit. */
+        if (p > 0.98f) *al = 0;
+    } else {
         *al = p;
         *tint = (Color){ (unsigned char)(c->tube.r + (255 - c->tube.r) * 0.6f), (unsigned char)(c->tube.g + (255 - c->tube.g) * 0.6f),
                          (unsigned char)(c->tube.b + (255 - c->tube.b) * 0.6f), 255 };
@@ -365,8 +373,6 @@ static void mq_text(const Marquee *m, FontId f, const char *s, int base, float x
     st.align = ALIGN_LEFT;
     /* Unlit glass tubes first, always visible... */
     st.color = (Color){ (unsigned char)(tube.r * 0.25f + 22), (unsigned char)(tube.g * 0.25f + 16), (unsigned char)(tube.b * 0.25f + 24), 255 };
-    st.shadow = BLACK;
-    st.shadow_k = 0.7f;
     st.fn = mq_glyph;
     st.user = &c;
     text_draw_ex(f, s, x, y, size, &st);
@@ -383,10 +389,9 @@ void marquee_draw(const Marquee *m, float cx, float cy, float scale)
     float w = 820 * scale, h = 104 * scale;
     Rectangle r = { cx - w / 2, cy - h / 2, w, h };
     /* The sign board: dark glass in a brass frame with a warm under-glow. */
-    gfx_nine(sprite_nine(NINE_SHADOW), r.x - 26, r.y - 18, r.width + 52, r.height + 52, 44, gfx_cola(BLACK, 0.7f));
     gfx_nine(sprite_nine(NINE_GLOW), r.x - 24, r.y - 24, r.width + 48, r.height + 48, 40, gfx_add(UI_AMBER, 0.35f));
-    gfx_nine(sprite_nine(NINE_RRECT), r.x, r.y, r.width, r.height, 16, gfx_col((Color){ 20, 11, 22, 255 }));
-    gfx_nine(sprite_nine(NINE_PANEL), r.x + 3, r.y + 3, r.width - 6, r.height * 0.5f, 12, gfx_cola(WHITE, 0.05f));
+    gfx_nine_vgrad(sprite_nine(NINE_RRECT), r.x, r.y, r.width, r.height, 16, gfx_col((Color){ 34, 20, 36, 255 }),
+                   gfx_col((Color){ 14, 8, 16, 255 }));
     gfx_nine(sprite_nine(NINE_RRECT_LINE), r.x, r.y, r.width, r.height, 16, gfx_col((Color){ 214, 162, 64, 255 }));
     gfx_nine(sprite_nine(NINE_RRECT_LINE), r.x + 5, r.y + 5, r.width - 10, r.height - 10, 12, gfx_cola((Color){ 120, 80, 30, 255 }, 0.8f));
     /* Rivets. */
@@ -410,8 +415,6 @@ void marquee_draw(const Marquee *m, float cx, float cy, float scale)
         memset(&st, 0, sizeof st);
         st.spacing = 2 * scale;
         st.color = (Color){ 80, 60, 30, 255 };
-        st.shadow = BLACK;
-        st.shadow_k = 0.7f;
         st.fn = mq_glyph;
         st.user = &cc;
         text_draw_ex(FONT_NEON_L, k_block, bx, cy - bs * 0.5f, bs, &st);
@@ -483,11 +486,13 @@ void bulbs_update(BulbRing *r, float dt)
 void bulbs_draw(const BulbRing *r)
 {
     const Spr *off = sprite(SPR_BULB_OFF), *on = sprite(SPR_BULB_ON), *glow = sprite(SPR_GLOW);
-    for (int i = 0; i < r->n; i++) gfx_spr_rot(off, r->pos[i].x, r->pos[i].y, 18, 18, 0, gfx_col(WHITE));
+    /* The unlit glass only where the lit core will not cover it. */
+    for (int i = 0; i < r->n; i++)
+        if (r->b[i] < 0.9f) gfx_spr_rot(off, r->pos[i].x, r->pos[i].y, 18, 18, 0, gfx_col(WHITE));
     for (int i = 0; i < r->n; i++) {
         float b = r->b[i];
         if (b < 0.04f) continue;
-        gfx_spr_rot(glow, r->pos[i].x, r->pos[i].y, 50, 50, 0, gfx_add(r->color, 0.55f * b));
+        gfx_spr_rot(glow, r->pos[i].x, r->pos[i].y, 42, 42, 0, gfx_add(r->color, 0.65f * b));
         gfx_spr_rot(on, r->pos[i].x, r->pos[i].y, 22, 22, 0, gfx_cola(WHITE, b));
     }
 }
@@ -545,7 +550,10 @@ void meter_update(Meter *m, float dt)
 
 void meter_draw(const Meter *m, Rectangle r, const char *label, Color neon)
 {
-    ui_panel(r, neon, 0.5f, 1.0f);
+    /* Solid underneath: a meter often sits over busy art (the jackpot one
+     * over the cards) and must read at a glance. */
+    gfx_nine(sprite_nine(NINE_RRECT), r.x, r.y, r.width, r.height, 16, gfx_cola((Color){ 8, 4, 10, 255 }, 0.8f));
+    ui_panel(r, neon, 0.5f + 0.5f * m->bump, 1.0f);
     TextStyle ts;
     memset(&ts, 0, sizeof ts);
     ts.align = ALIGN_CENTER;
@@ -579,11 +587,13 @@ void ui_banner(const char *text, float cx, float cy, float size, float appear, f
     if (sc <= 0.01f) return;
     float op = clampf(appear * 3, 0, 1) * (1 - clampf(vanish, 0, 1));
     if (rays) {
-        float rs = 620 * sc;
-        gfx_spr_rot(sprite(SPR_RAYS), cx, cy, rs, rs, (float)time * 0.35f, gfx_add(UI_GOLD, 0.55f * op));
-        gfx_spr_rot(sprite(SPR_RAYS), cx, cy, rs * 0.8f, rs * 0.8f, -(float)time * 0.22f, gfx_add(UI_MAGENTA, 0.35f * op));
+        /* One sunburst layer: at this size it is ~0.3 Mpx of additive fill,
+         * which on the Pi is ~0.7 ms, so a second counter-rotating layer is
+         * not worth its cost. */
+        float rs = 500 * sc;
+        gfx_spr_rot(sprite(SPR_RAYS), cx, cy, rs, rs, (float)time * 0.35f, gfx_add((Color){ 255, 170, 120, 255 }, 0.6f * op));
     }
-    gfx_spr_rot(sprite(SPR_GLOW), cx, cy, size * 7 * sc, size * 2.4f * sc, 0, gfx_cola(BLACK, 0.55f * op));
+    gfx_spr_rot(sprite(SPR_GLOW), cx, cy, size * 5.5f * sc, size * 1.7f * sc, 0, gfx_cola(BLACK, 0.7f * op));
     text_gold(size > 60 ? FONT_DISP_L : FONT_DISP_M, text, cx, cy, size * sc, op, 0.9f);
     /* A glint running across the letters. */
     float gx = cx + (fmodf((float)time * 0.7f, 1.6f) - 0.8f) * text_width(FONT_DISP_L, text, size, 0) * 1.1f;

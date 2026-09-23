@@ -67,6 +67,12 @@ void gfx_nine_vgrad(const Nine *n, float x, float y, float w, float h, float cor
 void gfx_set_white(Spr white);
 const Spr *gfx_white(void);
 
+/* Pixels covered by quads since the last take (fill-rate accounting: the
+ * Pi's GPU costs ~2.2 ms per million blended pixels). Passes drawn outside
+ * gfx (bloom) add their share with gfx_fill_add. */
+double gfx_fill_take(void);
+void   gfx_fill_add(double px);
+
 /* Screen-space offset for everything drawn until popped (screen shake);
  * a matrix on rlgl's stack, so it does not break the batch. */
 void gfx_push_offset(float dx, float dy, float rot_deg, float cx, float cy);

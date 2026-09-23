@@ -92,7 +92,7 @@ void text_raster_job(int i)
         f->raw = LoadFontData(g_file[fi], g_file_len[fi], k_fonts[i].size, cps, NCHARS, FONT_DEFAULT);
         f->nraw = f->raw ? NCHARS : 0;
         f->ok = f->raw != NULL;
-        f->pad = k_fonts[i].glow ? (int)ceilf(k_fonts[i].size * 0.12f) : 0;
+        f->pad = k_fonts[i].glow ? (int)ceilf(k_fonts[i].size * 0.09f) : 0;
         return;
     }
     int k = i - FONT_COUNT;
@@ -323,12 +323,14 @@ void text_draw_ex(FontId fid, const char *s, float x, float y, float size, const
                     }
                     break;
                 case 2: {
+                    /* The outline is the glyph itself, a little larger, in the
+                     * outline colour behind the face: one quad per glyph
+                     * instead of eight offset copies (on the fill-bound Pi a
+                     * 120 px banner's eight copies cost ~2 ms). Close to a
+                     * true outline for the bold display faces it is used on. */
                     PCol oc = gfx_cola(st->outline, al);
                     float o = st->outline_px;
-                    for (int d = 0; d < 8; d++) {
-                        float a = (float)d * 0.785398f;
-                        gfx_spr(&g->s, gx + cosf(a) * o, gy + sinf(a) * o, gw, gh, oc);
-                    }
+                    gfx_spr(&g->s, gx - o, gy - o * 0.8f, gw + 2 * o, gh + 2 * o * 0.8f, oc);
                     break;
                 }
                 default:
@@ -363,8 +365,6 @@ void text_neon(FontId f, const char *s, float cx, float cy, float size, Color tu
     st.color = lerp_color(off, hot, power);
     st.glow = tube;
     st.glow_k = glow_k * power;
-    st.shadow = (Color){ 0, 0, 0, 255 };
-    st.shadow_k = 0.55f;
     text_draw_ex(f, s, cx, cy - size * 0.5f, size, &st);
 }
 
@@ -374,12 +374,12 @@ void text_gold(FontId f, const char *s, float cx, float cy, float size, float op
     memset(&st, 0, sizeof st);
     st.align = ALIGN_CENTER;
     st.opacity = opacity;
-    st.shadow = (Color){ 20, 6, 0, 255 };
-    st.shadow_k = 0.9f;
+    /* No per-glyph shadow: the outline gives the edge, and callers put a
+     * dark halo behind banners - a shadow quad per glyph is 0.3 Mpx at 120 px. */
     st.glow = (Color){ 255, 170, 40, 255 };
     st.glow_k = glow_k;
     st.outline = (Color){ 90, 40, 8, 255 };
-    st.outline_px = size * 0.035f;
+    st.outline_px = size * 0.045f;
     st.color = (Color){ 255, 246, 196, 255 };
     st.color2 = (Color){ 214, 128, 22, 255 };
     text_draw_ex(f, s, cx, cy - size * 0.5f, size, &st);

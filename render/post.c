@@ -10,10 +10,15 @@
 #include "platform/fx_settings.h"
 #include "platform/screen.h"
 #include "platform/texreg.h"
+#include "render/gfx.h"
 
 static RenderTexture2D g_scene, g_q4[2], g_q8[2];
 static Shader g_thresh, g_blur, g_blur_fast, g_comp;
-static int g_loc_texel, g_loc_curve, g_loc_dir, g_loc_dir_fast, g_loc_bloom, g_loc_strength;
+static int g_loc_texel, g_loc_curve, g_loc_dir, g_loc_dir_fast, g_loc_bloom, g_loc_strength, g_loc_flash;
+static float g_flash[3];
+static unsigned g_back_tex;
+static float g_back_dim;
+static int g_loc_back, g_loc_back_dim;
 static BloomParams g_params = { 0.72f, 0.18f, 1.0f, BLOOM_Q4 };
 static int g_ready, g_active;
 
@@ -74,8 +79,13 @@ static const char *const k_comp =
     "uniform sampler2D texture0;\n"
     "uniform sampler2D uBloom;\n"
     "uniform float uStrength;\n"
+    "uniform vec3 uFlash;\n"
+    "uniform sampler2D uBack;\n"
+    "uniform float uBackDim;\n"
     "void main() {\n"
-    "    vec3 c = TEX(texture0, fragTexCoord).rgb + TEX(uBloom, fragTexCoord).rgb * uStrength;\n"
+    "    vec4 s = TEX(texture0, fragTexCoord);\n"
+    "    vec3 back = TEX(uBack, vec2(fragTexCoord.x, 1.0 - fragTexCoord.y)).rgb * uBackDim;\n"
+    "    vec3 c = back * (1.0 - s.a) + s.rgb + TEX(uBloom, fragTexCoord).rgb * uStrength + uFlash;\n"
     "    FRAG_OUT = vec4(c, 1.0);\n"
     "}\n";
 
@@ -110,6 +120,9 @@ int post_init(void)
     g_loc_dir_fast = GetShaderLocation(g_blur_fast, "uDir");
     g_loc_bloom = GetShaderLocation(g_comp, "uBloom");
     g_loc_strength = GetShaderLocation(g_comp, "uStrength");
+    g_loc_flash = GetShaderLocation(g_comp, "uFlash");
+    g_loc_back = GetShaderLocation(g_comp, "uBack");
+    g_loc_back_dim = GetShaderLocation(g_comp, "uBackDim");
     g_scene = target("bloom scene 1280x720", PLAY_W, PLAY_H);
     g_q4[0] = target("bloom 1/4 a", PLAY_W / 4, PLAY_H / 4);
     g_q4[1] = target("bloom 1/4 b", PLAY_W / 4, PLAY_H / 4);
@@ -144,13 +157,35 @@ const char *post_quality_name(BloomQuality q)
 
 int post_active(void) { return g_active; }
 
+int post_backdrop(unsigned tex, float dim)
+{
+    if (!g_active) return 0;
+    g_back_tex = tex;
+    g_back_dim = dim;
+    return 1;
+}
+
+int post_flash(float r, float g, float b)
+{
+    if (!g_active) return 0;
+    g_flash[0] += r;
+    g_flash[1] += g;
+    g_flash[2] += b;
+    return 1;
+}
+
 void post_begin(void)
 {
     g_active = g_ready && g_effects.bloom;
+    g_flash[0] = g_flash[1] = g_flash[2] = 0;
+    g_back_tex = 0;
+    g_back_dim = 1;
     if (!g_active) return;
     rlDrawRenderBatchActive();
     BeginTextureMode(g_scene);
-    ClearBackground((Color){ 14, 12, 16, 255 });
+    /* Transparent: the scene target collects premultiplied colour and
+     * coverage, and the backdrop goes under it in the composite. */
+    ClearBackground((Color){ 0, 0, 0, 0 });
 }
 
 /* A full-target quad from src into dst through shader sh. Both targets keep
@@ -196,8 +231,16 @@ void post_end(void)
     BeginShaderMode(g_comp);
     SetShaderValueTexture(g_comp, g_loc_bloom, b[0].texture);
     SetShaderValue(g_comp, g_loc_strength, &g_params.strength, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(g_comp, g_loc_flash, g_flash, SHADER_UNIFORM_VEC3);
+    /* No backdrop registered: a 1x1 black stands in (rlgl's default white, dimmed to 0). */
+    Texture2D back = { g_back_tex ? g_back_tex : rlGetTextureIdDefault(), 1, 1, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
+    float bd = g_back_tex ? g_back_dim : 0.0f;
+    SetShaderValueTexture(g_comp, g_loc_back, back);
+    SetShaderValue(g_comp, g_loc_back_dim, &bd, SHADER_UNIFORM_FLOAT);
     DrawTexturePro(g_scene.texture, (Rectangle){ 0, 0, PLAY_W, -PLAY_H }, (Rectangle){ 0, 0, PLAY_W, PLAY_H },
                    (Vector2){ 0, 0 }, 0, WHITE);
     EndShaderMode();
     rlEnableColorBlend();
+    /* Fill accounting (gfx.h): the three small passes and the composite. */
+    gfx_fill_add(3.0 * b[0].texture.width * b[0].texture.height + (double)PLAY_W * PLAY_H);
 }

@@ -102,10 +102,10 @@ static float smooth_start(float v)
 
 static float f_beam(float x, float y, float w, float h)
 {
+    /* A straight beam profile; the cone comes from the geometry (celebrate.c
+     * draws it as tapered strips), so no fill is spent outside the light. */
     float v = y / h, u = (x - w / 2) / (w / 2);
-    float wid = 0.06f + 0.94f * v;
-    float across = u / wid;
-    float i = expf(-across * across * 2.8f);
+    float i = expf(-u * u * 2.8f);
     i *= smooth_start(v);
     i *= 1.0f - 0.6f * v;
     return i * 0.85f;

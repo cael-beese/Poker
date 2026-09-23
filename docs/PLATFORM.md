@@ -90,7 +90,7 @@ to it.
 | option | |
 |---|---|
 | `--config FILE` | settings (default: `config.ini` next to the binary, else `platform/config.ini`) |
-| `--mode NAME` | start state: `attract menu draw holdem service gputest` |
+| `--mode NAME` | start state: `attract menu draw holdem service gputest rendertest` |
 | `--seed HEX` | session seed (default: OS entropy); printed at start |
 | `--frames N` | exit after N rendered frames |
 | `--perf-csv FILE` | per-frame log, see section 7 |
@@ -99,6 +99,7 @@ to it.
 | `--lockstep` | exactly one tick per frame, dt = 1/60: frames == ticks, runs and screenshots are reproducible |
 | `--gpu-finish` | `glFinish` after the play space and after compose, so `render_ms` / `compose_ms` are true GPU times (costs throughput; for measuring only) |
 | `--overlay` | start with the F1 overlay on |
+| `--fx LIST` | effect toggles, e.g. `bloom=off,shake=off` (`none` = all off); overrides `[effects]` in `config.ini` |
 | `--present auto\|plane\|gpu` | how the play space reaches the display (section 4) |
 | `--scale auto\|integer\|fit\|1x`, `--filter auto\|point\|bilinear`, `--no-side-art` | layout (section 4) |
 | `--size WxH` | window size (desktop) or display mode (DRM; default: the display's preferred mode) |
@@ -158,8 +159,10 @@ keep side-art animation for the gpu path or make it rare.
 ## 5. The app state machine and the mode interface (`platform/app.h`)
 
 States: `ATTRACT -> MENU -> DRAW | HOLDEM`, `SERVICE` from any state with the
-SERVICE button (BACK / SERVICE returns), and `GPUTEST` (`--mode gputest`, the
-GPU smoke test). Each state is served by an `AppMode`:
+SERVICE button (BACK / SERVICE returns), `GPUTEST` (`--mode gputest`, the
+GPU smoke test) and `RENDERTEST` (`--mode rendertest` or the menu's third
+item: the renderer's showcase and profiling scene, `render/rendertest.c`).
+Each state is served by an `AppMode`:
 
 ```c
 typedef struct AppMode {
@@ -186,7 +189,12 @@ typedef struct AppMode {
   for button feedback. `ctx->time` is presentation time (seconds).
 - To plug a mode in: define `const AppMode mode_draw = {...}` in your module
   and point its slot in **`platform/app_modes.c`** at it (replacing the
-  placeholder). Each placeholder shows a live logical-button panel, which is
+  placeholder). `app_modes.c` is compiled into the executable, not into
+  `bpl_platform`, so it can name modes from libraries that depend on
+  `bpl_platform` (as `bpl_render` does) without a static-library link cycle.
+- A renderer that draws into its own targets between `screen_begin_play()`
+  and `screen_end_play()` (bloom) calls `screen_resume_play()` to bind the
+  play space again without clearing it. Each placeholder shows a live logical-button panel, which is
   the quickest way to check input on the cabinet.
 
 Timing of a press: raylib and the joystick reader poll the devices at the end
@@ -218,7 +226,12 @@ joystick and the buttons held, which is how to fill in `config.ini`.
 **F1 overlay** (the `DEBUG` button): FPS and frame time (last, rolling
 average and max over 120 frames), logic / render / compose / swap ms, draw
 calls of the previous frame, RSS, registered texture memory, state, tick,
-seed, layout, GL version, and the start-up time.
+seed, layout, GL version, the start-up time, and the effect toggles
+(`platform/fx_settings.h`: upper case = on).
+
+**Effect toggles**: `g_effects` (`bloom particles shake hitpause
+marquee_flicker bulb_chase shimmer card_specular`), from `[effects]` in
+`config.ini` and `--fx`; presentation reads them every frame.
 
 **`--perf-csv FILE`**, one row per frame:
 `frame,frame_ms,logic_ms,render_ms,draw_calls,compose_ms,swap_ms,ticks,rss_kb`
@@ -339,4 +352,6 @@ Builds: raylib 20-24 s per variant (49 s cold); the platform from clean 21 s.
   persistence exists.
 - The cabinet's panel-to-button mapping in `config.ini` is a first guess.
 - On the plane path the side art is static (redraw with
-  `screen_refresh_side_art()`); the gpu path animates it.
+  `screen_refresh_side_art()`); the gpu path animates it. The plane path's
+  background is drawn once, before the first frame, so a mode that installs
+  its own side art during init (the renderer does) costs one refresh.

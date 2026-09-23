@@ -70,6 +70,8 @@ static const Vec2f k_shoe = { 1180, -120 };
 
 static int g_prof_mask[32], g_prof_n, g_prof_seg = 480, g_skip;
 static long g_frame;
+static double g_seg_fill;
+static int g_seg_n;
 
 static void profile_parse(void)
 {
@@ -256,14 +258,32 @@ static void update_showcase(float dt)
             if (R.scene == SC_JACKPOT) {
                 R.phase = 2;       /* again, at full intensity */
             } else {
-                R.round++;
+                /* Collect: the hand turns over and sweeps off before the next deal. */
                 meter_count(&R.credits, (double)R.credits_v, 0.8f);
-                deal_hand(R.round, 0.2f);
-                R.phase = 0;
+                R.phase = 4;
                 R.phase_t = 0;
+                R.hold_mask = 0;
             }
         }
         break;
+    case 4: {
+        float k = clampf(R.phase_t / 0.55f, 0, 1);
+        for (int i = 0; i < 5; i++) {
+            float ki = clampf(k * 1.6f - 0.12f * (float)i, 0, 1);
+            R.pose[i].flip = 1.0f - ease(EASE_INOUT_CUBIC, clampf(ki * 2, 0, 1));
+            float s = ease(EASE_IN_BACK, clampf(ki * 2 - 1, 0, 1));
+            R.pose[i].x = lerpf(card_x(i), k_shoe.x, s);
+            R.pose[i].y = lerpf(CARD_Y, k_shoe.y, s);
+            R.pose[i].rot = lerpf(0, -0.9f, s);
+        }
+        if (k >= 1) {
+            R.round++;
+            deal_hand(R.round, 0.05f);
+            R.phase = 0;
+            R.phase_t = 0;
+        }
+        break;
+    }
     }
     for (int i = 0; i < 5; i++) {
         float target = (R.hold_mask >> i) & 1 ? 1.0f : 0.0f;
@@ -306,7 +326,17 @@ static void rt_update(const AppCtx *ctx, const GameEvent *ev, int nev, float rea
         long seg = g_frame / g_prof_seg;
         g_skip = g_prof_mask[seg < g_prof_n ? seg : g_prof_n - 1];
         g_effects.bloom = !(g_skip & 128);
-        if (g_frame % g_prof_seg == 0) start_scene(SC_JACKPOT);
+        if (g_frame % g_prof_seg == 0) {
+            /* Fill per frame of the segment that just ended (desktop proxy for GPU ms). */
+            if (g_frame > 0 && g_seg_n > 0) {
+                long prev = g_frame / g_prof_seg - 1;
+                fprintf(stderr, "PROFILE segment %ld mask %d: fill %.2f Mpx/frame\n", prev,
+                        g_prof_mask[prev < g_prof_n ? prev : g_prof_n - 1], g_seg_fill / g_seg_n / 1e6);
+            }
+            g_seg_fill = 0;
+            g_seg_n = 0;
+            start_scene(SC_JACKPOT);
+        }
     }
     float dt = clock_step(&R.clock, real_dt);
     R.time = R.clock.time;
@@ -488,6 +518,8 @@ static void rt_draw(const AppCtx *ctx)
     }
     if (R.legend) draw_legend();
     render_end();
+    double fill = gfx_fill_take();
+    if (g_frame % g_prof_seg > 30) { g_seg_fill += fill; g_seg_n++; }
 }
 
 static void rt_shutdown(void)

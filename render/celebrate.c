@@ -8,6 +8,7 @@
 
 #include "platform/screen.h"
 #include "render/particles.h"
+#include "render/post.h"
 #include "render/sprites.h"
 
 #define PI_F 3.14159265f
@@ -173,18 +174,27 @@ float celeb_dim(const Celebration *c) { return c->dim; }
 
 static void beam(Vector2 apex, float angle, float len, float width, Color col, float k)
 {
+    /* A cone as four tapered strips along its length: the fill follows the
+     * light instead of covering the beam's whole bounding rectangle. */
     float dx = sinf(angle), dy = cosf(angle);
     float nx = dy, ny = -dx;
-    Vector2 p[4] = {
-        { apex.x - nx * width * 0.5f, apex.y - ny * width * 0.5f },
-        { apex.x + dx * len - nx * width * 0.5f, apex.y + dy * len - ny * width * 0.5f },
-        { apex.x + dx * len + nx * width * 0.5f, apex.y + dy * len + ny * width * 0.5f },
-        { apex.x + nx * width * 0.5f, apex.y + ny * width * 0.5f },
-    };
-    gfx_quad(sprite(SPR_BEAM), p, gfx_add(col, k));
+    const Spr *s = sprite(SPR_BEAM);
+    const int N = 4;
+    for (int i = 0; i < N; i++) {
+        float t0 = (float)i / N, t1 = (float)(i + 1) / N;
+        float w0 = width * (0.08f + 0.92f * t0) * 0.5f, w1 = width * (0.08f + 0.92f * t1) * 0.5f;
+        float ax = apex.x + dx * len * t0, ay = apex.y + dy * len * t0;
+        float bx = apex.x + dx * len * t1, by = apex.y + dy * len * t1;
+        Vector2 p[4] = { { ax - nx * w0, ay - ny * w0 }, { bx - nx * w1, by - ny * w1 },
+                         { bx + nx * w1, by + ny * w1 }, { ax + nx * w0, ay + ny * w0 } };
+        Spr q = *s;
+        q.v0 = s->v0 + (s->v1 - s->v0) * t0;
+        q.v1 = s->v0 + (s->v1 - s->v0) * t1;
+        gfx_quad(&q, p, gfx_add(col, k));
+    }
     /* The pool of light where it lands. */
     float fx = apex.x + dx * len * 0.92f, fy = apex.y + dy * len * 0.92f;
-    gfx_spr_rot(sprite(SPR_GLOW), fx, fy, width * 1.1f, width * 0.45f, 0, gfx_add(col, 0.5f * k));
+    gfx_spr_rot(sprite(SPR_GLOW), fx, fy, width * 0.8f, width * 0.3f, 0, gfx_add(col, 0.6f * k));
 }
 
 void celeb_draw_back(const Celebration *c, double time)
@@ -192,8 +202,8 @@ void celeb_draw_back(const Celebration *c, double time)
     if (c->spot <= 0.01f) return;
     float t = (float)time;
     float k = 0.55f * c->spot;
-    beam((Vector2){ 250, -30 }, 0.45f * sinf(t * 1.1f) - 0.25f, 860, 520, (Color){ 255, 210, 120, 255 }, k);
-    beam((Vector2){ PLAY_W - 250, -30 }, 0.45f * sinf(t * 1.1f + 2.0f) + 0.25f, 860, 520, (Color){ 255, 90, 220, 255 }, k);
+    beam((Vector2){ 250, -30 }, 0.45f * sinf(t * 1.1f) - 0.25f, 840, 440, (Color){ 255, 210, 120, 255 }, k * 1.1f);
+    beam((Vector2){ PLAY_W - 250, -30 }, 0.45f * sinf(t * 1.1f + 2.0f) + 0.25f, 840, 440, (Color){ 255, 90, 220, 255 }, k * 1.1f);
 }
 
 void celeb_draw_front(const Celebration *c, double time)
@@ -239,5 +249,8 @@ void celeb_draw_front(const Celebration *c, double time)
         default: break;
         }
     }
-    if (c->flash.v > 0.01f) gfx_rect(0, 0, PLAY_W, PLAY_H, gfx_add((Color){ 255, 244, 220, 255 }, c->flash.v));
+    /* The flash rides on the bloom composite when bloom is on (no extra
+     * full-screen pass); otherwise it is one additive quad. */
+    if (c->flash.v > 0.01f && !post_flash(c->flash.v, c->flash.v * 0.96f, c->flash.v * 0.86f))
+        gfx_rect(0, 0, PLAY_W, PLAY_H, gfx_add((Color){ 255, 244, 220, 255 }, c->flash.v));
 }

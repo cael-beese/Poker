@@ -78,7 +78,7 @@ static Particle *spawn(ParticleKind kind, float x, float y, float vx, float vy, 
         p->g = 260; p->drag = 1.6f; p->life = fx_randf(0.55f, 1.15f); p->size = fx_randf(5, 9);
         break;
     case PK_DROP:
-        p->g = 1100; p->drag = 0.2f; p->life = fx_randf(1.2f, 2.0f); p->size = fx_randf(13, 21);
+        p->g = 1100; p->drag = 0.2f; p->life = fx_randf(1.2f, 2.0f); p->size = fx_randf(16, 26);
         break;
     case PK_CONFETTI:
         p->g = 160; p->drag = 2.0f; p->life = fx_randf(3.0f, 4.6f); p->size = fx_randf(11, 17);
@@ -329,7 +329,8 @@ void pfx_draw(void)
         }
         case PK_DROP: {
             float sp = sqrtf(p->vx * p->vx + p->vy * p->vy);
-            float stretch = 1.0f + fminf(sp / 900.0f, 0.8f);
+            /* Only a little stretch: honey is thick, and long streaks read as flames. */
+            float stretch = 1.0f + fminf(sp / 2400.0f, 0.3f);
             float ang = atan2f(p->vy, p->vx) - PI_F / 2;
             gfx_spr_rot(sprite(SPR_DROP), p->x, p->y, p->size * 0.75f / sqrtf(stretch), p->size * stretch, ang,
                         gfx_cola(WHITE, fade));

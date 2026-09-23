@@ -707,23 +707,24 @@ void card_draw(Card c, CardSize sz, const CardPose *p)
     float ww = w * xs;
     float k = sc * (sz == CARD_L ? 1.0f : 0.6f);
 
-    /* Soft shadow on the felt, further and softer the higher the card floats. */
-    if (!p->no_shadow) {
+    /* Soft shadow on the felt, further and softer the higher the card floats.
+     * A glowing card needs none: its glow frame already lifts it off the
+     * table, and the shadow would be 40k pixels of fill hidden under it. */
+    if (!p->no_shadow && p->glow < 0.5f && p->highlight < 0.3f) {
         float off = 6 * k + p->lift * 0.35f, spread = 10 * k + p->lift * 0.25f;
         gfx_nine(sprite_nine(NINE_SHADOW), p->x - ww * 0.5f - spread + off * 0.4f, p->y - h * 0.5f - spread + off,
                  ww + 2 * spread, h + 2 * spread, 44 * k, gfx_cola((Color){ 0, 0, 0, 255 }, 0.55f * alpha));
     }
-    /* Held glow behind the card. */
-    if (p->glow > 0.01f) {
+    /* One glow frame behind the card: held (honey) and win highlight
+     * (hot pink) mix into it rather than stacking two frames of fill. */
+    if (p->glow > 0.01f || p->highlight > 0.01f) {
         Color gc = p->glow_color.a ? p->glow_color : (Color){ 255, 190, 60, 255 };
-        float g = 22 * k;
+        float hl = clampf(p->highlight, 0, 1), gk = fmaxf(p->glow * 1.25f, hl * 1.5f);
+        Color mix = { (unsigned char)(gc.r + (255 - gc.r) * hl), (unsigned char)(gc.g + (130 - gc.g) * hl),
+                      (unsigned char)(gc.b + (235 - gc.b) * hl), 255 };
+        float g = 22 * k * (1 + 0.15f * hl);
         gfx_nine(sprite_nine(NINE_GLOW), cx - ww * 0.5f - g, cy - h * 0.5f - g, ww + 2 * g, h + 2 * g, 40 * k,
-                 gfx_add(gc, 1.25f * p->glow * alpha));
-    }
-    if (p->highlight > 0.01f) {
-        float g = 22 * k * (1 + 0.15f * p->highlight);
-        gfx_nine(sprite_nine(NINE_GLOW), cx - ww * 0.5f - g, cy - h * 0.5f - g, ww + 2 * g, h + 2 * g, 40 * k,
-                 gfx_add((Color){ 255, 120, 230, 255 }, 1.4f * p->highlight * alpha));
+                 gfx_add(mix, gk * alpha));
     }
 
     /* Edge-on cards catch less light. */
@@ -742,10 +743,6 @@ void card_draw(Card c, CardSize sz, const CardPose *p)
     } else if (p->sheen > 0 && p->sheen_k > 0) {
         band = p->sheen;
         bk = p->sheen_k;
-    }
-    if (p->highlight > 0.01f && band < 0) {
-        band = 0.5f + 0.5f * sinf(p->highlight * 6.0f);
-        bk = 0.25f * p->highlight;
     }
     if (band >= 0 && bk > 0) {
         int fr = (int)(clampf(band, 0, 1) * (CARD_SHEEN_FRAMES - 1) + 0.5f);

@@ -66,8 +66,22 @@ static inline void vcol(PCol c)
     rlColor4ub(u8(c.r * g_tr), u8(c.g * g_tg), u8(c.b * g_tb), c.a);
 }
 
+static double g_fill;
+
+double gfx_fill_take(void)
+{
+    double f = g_fill;
+    g_fill = 0;
+    return f;
+}
+
+void gfx_fill_add(double px) { g_fill += px; }
+
 void gfx_quad4(const Spr *s, const Vector2 p[4], const PCol c[4])
 {
+    /* Pixels this quad covers (shoelace area): the fill-rate budget is the
+     * Pi's limit, so every quad is counted, for profiling on any machine. */
+    g_fill += 0.5 * fabs((double)((p[0].x - p[2].x) * (p[1].y - p[3].y) - (p[1].x - p[3].x) * (p[0].y - p[2].y)));
     rlCheckRenderBatchLimit(4);
     rlSetTexture(s->tex);
     rlBegin(RL_QUADS);

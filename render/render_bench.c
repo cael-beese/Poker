@@ -41,7 +41,9 @@
 #include "render/render.h"
 
 extern const AppMode mode_rendertest;
-extern void glFinish(void);
+
+/* The mode table platform/app.c refers to (the game's lives in app_modes.c). */
+const AppMode *const app_modes[APP_NSTATES] = { [APP_RENDERTEST] = &mode_rendertest };
 
 static double now_ms(void)
 {

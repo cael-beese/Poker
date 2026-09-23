@@ -55,3 +55,26 @@ files.
 | `music/lounge_loop.ogg` | in-game music, 1:57, seamless loop | 48 bars at 98 bpm in C minor: FM electric piano, synth bass, detuned-saw pad, plucked arpeggio, glide lead, synthesised drums; stems balanced to fixed levels, reverb and delay tails folded onto the loop start |
 | `music/attract_loop.ogg` | attract-mode music, 0:39, seamless loop | 16 bars of the same material at full energy |
 | `music/ambience_lounge.ogg` | bar crowd murmur, 0:40, seamless loop | sixteen synthetic "talkers" (glottal buzz through moving vowel formants, in syllables and phrases), glass clinks, room tone, a large reverb; crossfaded loop point |
+
+## Fonts
+
+Four typefaces, all under the **SIL Open Font License 1.1**, taken unmodified
+from the Google Fonts repository (`github.com/google/fonts`, branch `main`,
+commit `b5efa9c3`, fetched 2026-09-23). Each license travels with its font as
+`assets/fonts/<Family>-OFL.txt`. The game rasterises them into its texture
+atlas at start-up; it does not modify or redistribute them in any other form.
+
+| file | family, designer | used for | source |
+|---|---|---|---|
+| `fonts/BarlowCondensed-SemiBold.ttf` | Barlow Condensed SemiBold, Jeremy Tribby (The Barlow Project Authors) | paytables, labels, UI text | `ofl/barlowcondensed/` |
+| `fonts/Bungee-Regular.ttf` | Bungee, David Jonathan Ross (The Bungee Project Authors) | card indices, meters, buttons, win banners | `ofl/bungee/` |
+| `fonts/TiltNeon.ttf` | Tilt Neon (variable, default instance), Andy Clymer (The Tilt Project Authors) | neon signs and tags ("POKER LOUNGE", "HELD") | `ofl/tiltneon/TiltNeon[XROT,YROT].ttf` |
+| `fonts/Neonderthaw-Regular.ttf` | Neonderthaw, Robert Leuschke (The Neonderthaw Project Authors) | the script "Beese's" on the marquee | `ofl/neonderthaw/` |
+
+## Graphics
+
+All other graphics - the 52 card faces and the backs (including the court
+figures), the bee mascot, the honeycomb backgrounds, the side art, coins,
+sparks, bulbs, glows and every UI shape - are **original**, drawn by code at
+start-up (`render/`) and under the same license as the game. No images,
+clip art or third-party artwork are used.

@@ -37,5 +37,12 @@ const char *post_quality_name(BloomQuality q);
 void post_begin(void);
 void post_end(void);
 int  post_active(void);                  /* bloom ran this frame */
+/* A full-screen additive flash this frame, folded into the composite (free).
+ * Returns 0 when bloom is off: then draw it yourself (a full-screen quad). */
+int  post_flash(float r, float g, float b);
+/* A full-screen opaque backdrop texture (1280x720, normal orientation) put
+ * under the scene in the composite, times dim - so the backdrop costs no
+ * pass of its own. Returns 0 when bloom is off: then draw it yourself. */
+int  post_backdrop(unsigned tex, float dim);
 
 #endif
