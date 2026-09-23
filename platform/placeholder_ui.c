@@ -121,7 +121,7 @@ void ph_paytable(int variant, int bet, int lit_cat, int flash, float x, float y,
 {
     const DrawPaytable *pt = draw_paytable(variant);
     if (!pt) return;
-    const int rh = 21, fs = 20;
+    const int rh = 20, fs = 20;
     float colw = w * 0.11f, name_w = w - 5 * colw;
     float h = (float)(pt->rows * rh + 10);
     DrawRectangleRec((Rectangle){ x, y, w, h }, (Color){ 12, 10, 40, 230 });

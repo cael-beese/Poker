@@ -121,7 +121,7 @@ void holdem_placeholder_update(const HoldemViewInfo *v, const GameEvent *ev, int
             if (snd) audio_play(s == 0 && !v->demo ? SFX_WIN_SMALL : SFX_CHIP_POT, 1.0f, 1.0f, pan);
             break;
         case EV_HOLDEM_ELIMINATED:
-            if (okseat) snprintf(P.act[s], sizeof P.act[s], "OUT - %s", place_str(e->b));
+            if (okseat) P.act[s][0] = 0;      /* the stack line already says OUT and the place */
             break;
         case EV_HOLDEM_HUMAN_OUT: if (snd) audio_play(SFX_BUST, 1.0f, 1.0f, 0.0f); break;
         case EV_HOLDEM_GAME_OVER:

@@ -20,9 +20,9 @@
 #define C_RED     ((Color){ 220, 40, 50, 255 })
 
 #define CARD_W 144.0f
-#define CARD_H 200.0f
+#define CARD_H 196.0f
 #define CARD_GAP 26.0f
-#define CARD_Y 292.0f
+#define CARD_Y 298.0f
 #define CARD_X0 ((PLAY_W - (5 * CARD_W + 4 * CARD_GAP)) / 2)
 
 /* Cosmetic state only. */
@@ -102,7 +102,7 @@ static void hold_string(uint8_t mask, const Card *cards, char *out, size_t cap)
 
 static void double_panel(const DrawGame *g, double time)
 {
-    Rectangle r = { 300, CARD_Y - 10, 680, CARD_H + 30 };
+    Rectangle r = { 300, CARD_Y - 4, 680, CARD_H + 24 };
     DrawRectangleRounded(r, 0.05f, 6, (Color){ 16, 10, 24, 245 });
     DrawRectangleRoundedLinesEx(r, 0.05f, 6, 3, C_MAGENTA);
     char s[96];
@@ -110,6 +110,7 @@ static void double_panel(const DrawGame *g, double time)
     DrawText(s, (int)r.x + 20, (int)r.y + 16, 24, C_MAGENTA);
     snprintf(s, sizeof s, "STAKE %d  ->  %d", g->meter, g->meter * 2);
     if (g->state == DS_OFFER) snprintf(s, sizeof s, "WON  %d", g->meter);
+    if (g->state == DS_IDLE) snprintf(s, sizeof s, "LOST  %d", g->last.win << (g->last.dbl_won < 12 ? g->last.dbl_won : 0));
     DrawText(s, (int)r.x + 20, (int)r.y + 52, 24, C_HONEY);
     int shown = P.dbl_shown || g->state == DS_OFFER || g->state == DS_IDLE;
     Card c = g->dbl_card;
