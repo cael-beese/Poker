@@ -213,11 +213,13 @@ static void fill_holdem(const AppCtx *ctx, HoldemViewInfo *v)
 
 static void attract_present_update(const AppCtx *ctx, const GameEvent *ev, int nev, float dt)
 {
+    AttractViewInfo av = { A.phase, A.phase == ATTRACT_DRAW ? A.dg.variant : A.variant, ctx->wallet.credits };
     placeholder_common_update(ctx->state, ev, nev, dt);
+    if (app_draw_views->attract_update) app_draw_views->attract_update(&av, ev, nev, dt);
     if (A.phase == ATTRACT_DRAW) {
         DrawViewInfo v;
         fill_draw(&v);
-        draw_placeholder_update(&v, ev, nev, dt);
+        if (app_draw_views->draw_update) app_draw_views->draw_update(&v, ev, nev, dt);
     } else if (A.phase == ATTRACT_HOLDEM) {
         HoldemViewInfo v;
         fill_holdem(ctx, &v);
@@ -231,13 +233,13 @@ static void attract_present_draw(const AppCtx *ctx)
     if (A.phase == ATTRACT_DRAW) {
         DrawViewInfo v;
         fill_draw(&v);
-        draw_placeholder_view(&v, ctx->time);
+        if (app_draw_views->draw_view) app_draw_views->draw_view(&v, ctx->time);
     } else if (A.phase == ATTRACT_HOLDEM) {
         HoldemViewInfo v;
         fill_holdem(ctx, &v);
         holdem_placeholder_view(&v, ctx->time);
     }
-    attract_placeholder_view(&av, ctx->time);
+    if (app_draw_views->attract_view) app_draw_views->attract_view(&av, ctx->time);
 }
 
 static void attract_shutdown(void)

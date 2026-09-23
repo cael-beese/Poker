@@ -31,10 +31,19 @@ extern const AppMode mode_draw;
 extern const AppMode mode_holdem;
 extern const AppMode mode_service;
 
+/* The Draw, menu and attract presentation (platform/placeholder_view.h). */
+#include "platform/placeholder_view.h"
+#if defined(BPL_HAVE_RENDER)
+extern const DrawScreenViews draw_views_render;          /* render/draw_view.c */
+const DrawScreenViews *const app_draw_views = &draw_views_render;
+#else
+const DrawScreenViews *const app_draw_views = &draw_views_placeholder;
+#endif
+
 const AppMode *const app_modes[APP_NSTATES] = {
     [APP_ATTRACT] = &mode_attract,
     [APP_MENU]    = &mode_menu,
-    [APP_DRAW]    = &mode_draw,      /* presentation: placeholder_draw.c   */
+    [APP_DRAW]    = &mode_draw,      /* presentation: app_draw_views above */
     [APP_HOLDEM]  = &mode_holdem,    /* presentation: placeholder_holdem.c */
     [APP_SERVICE] = &mode_service,
     [APP_GPUTEST] = &mode_gputest,

@@ -94,6 +94,27 @@ typedef struct {
 /* The title card (phase TITLE), or the banner drawn over a demo game. */
 void attract_placeholder_view(const AttractViewInfo *v, double time);
 
+/* ---- which presentation serves the Draw, menu and attract screens ----------- */
+
+/* The modes call the Draw / menu / attract views through this table rather
+ * than by name, so bpl_platform never links against render/ (which depends
+ * on it). The executable picks the table in platform/app_modes.c, as it
+ * picks the modes: the renderer's (render/draw_view.h) when render/ is
+ * built, else draw_views_placeholder. Any pointer may be NULL. */
+typedef struct {
+    void (*draw_update)(const DrawViewInfo *v, const GameEvent *ev, int nev, float dt);
+    void (*draw_view)(const DrawViewInfo *v, double time);
+    void (*menu_update)(const MenuViewInfo *v, const GameEvent *ev, int nev, float dt);
+    void (*menu_view)(const MenuViewInfo *v, double time);
+    /* Attract: the title card's cosmetic state, then (after any demo game's
+       own view) the title card or the banner over the demo. */
+    void (*attract_update)(const AttractViewInfo *v, const GameEvent *ev, int nev, float dt);
+    void (*attract_view)(const AttractViewInfo *v, double time);
+} DrawScreenViews;
+
+extern const DrawScreenViews draw_views_placeholder;
+extern const DrawScreenViews *const app_draw_views;      /* platform/app_modes.c */
+
 /* ---- shared ------------------------------------------------------------------ */
 
 /* Sounds for app / session events (coins, state changes) and the music for
