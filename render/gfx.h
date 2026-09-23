@@ -55,7 +55,10 @@ void gfx_rect_vgrad(float x, float y, float w, float h, PCol top, PCol bottom);
 void gfx_rect_hgrad(float x, float y, float w, float h, PCol left, PCol right);
 
 /* Nine-slice: a sprite whose corners of size `corner` px stay unscaled. */
-typedef struct { Spr s; float corner; } Nine;
+typedef struct { Spr s; float corner; int hollow; } Nine;
+/* hollow = the image's centre is empty (outlines, glows) or always covered
+ * (shadows under their object): its centre cell is not drawn, which saves
+ * the fill of the whole interior - on the Pi's fill-bound GPU that matters. */
 void gfx_nine(const Nine *n, float x, float y, float w, float h, float corner_px, PCol c);
 /* The same with a vertical gradient from top to bottom colour. */
 void gfx_nine_vgrad(const Nine *n, float x, float y, float w, float h, float corner_px, PCol top, PCol bottom);

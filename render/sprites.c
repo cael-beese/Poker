@@ -293,6 +293,7 @@ void sprites_finish(void)
     for (int i = 0; i < NINE_COUNT; i++) {
         g_nine[i].s = atlas_spr(g_nine_item[i]);
         g_nine[i].corner = k_nine[i].corner;
+        g_nine[i].hollow = i == NINE_RRECT_LINE || i == NINE_GLOW || i == NINE_SHADOW;
     }
     gfx_set_white(g_spr[SPR_WHITE]);
 }

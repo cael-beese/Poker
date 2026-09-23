@@ -148,6 +148,7 @@ void gfx_nine_vgrad(const Nine *n, float x, float y, float w, float h, float cp,
     for (int j = 0; j < 3; j++)
         for (int i = 0; i < 3; i++) {
             if (xs[i + 1] <= xs[i] || ys[j + 1] <= ys[j]) continue;
+            if (n->hollow && i == 1 && j == 1) continue;
             Spr q = *s;
             q.u0 = us[i]; q.u1 = us[i + 1]; q.v0 = vs[j]; q.v1 = vs[j + 1];
             PCol ct = gfx_mixp(top, bottom, (ys[j] - y) / h), cb = gfx_mixp(top, bottom, (ys[j + 1] - y) / h);

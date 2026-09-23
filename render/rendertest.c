@@ -208,7 +208,7 @@ static void rt_enter(AppCtx *ctx, AppState from)
 
 static void rt_tick(AppCtx *ctx, const InputFrame *in)
 {
-    if (in->pressed & BTN_BACK) app_request(ctx, APP_MENU);
+    if ((in->pressed & BTN_BACK) && !g_prof_n) app_request(ctx, APP_MENU);
 }
 
 static void celebrate_round(void)

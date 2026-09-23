@@ -14,6 +14,7 @@
 #include "render/art.h"
 #include "render/fx.h"
 #include "render/sprites.h"
+#include "rlgl.h"
 
 #define PI_F 3.14159265f
 
@@ -180,7 +181,13 @@ void ui_background(double time, float dim)
 {
     Spr s = { 0, 0, 1, 1, BG_W, BG_H, g_bg.id };
     unsigned char v = (unsigned char)(255 * clampf(dim, 0, 1));
+    /* The backdrop covers everything: draw it with blending off (it is the
+     * frame's largest fill), in a batch of its own. */
+    gfx_flush();
+    rlDisableColorBlend();
     gfx_spr(&s, 0, 0, BG_W, BG_H, (PCol){ v, v, v, 255 });
+    gfx_flush();
+    rlEnableColorBlend();
     /* A few hex cells breathing with light, on the background's own grid. */
     const float w = 1.7320508f * k_hex_r;
     static const short cells[][2] = { { 2, 3 }, { 5, 9 }, { 9, 2 }, { 13, 11 }, { 16, 5 }, { 19, 12 }, { 4, 13 }, { 11, 7 }, { 20, 2 } };
