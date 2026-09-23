@@ -12,6 +12,8 @@ add_library(bpl_render STATIC
   celebrate.c
   fx.c
   gfx.c
+  holdem_art.c
+  holdem_present.c
   jobs.c
   particles.c
   post.c

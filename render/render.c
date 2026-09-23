@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "raylib.h"
+#include "render/holdem_art.h"
 #include "render/jobs.h"
 
 /* GL 1.0 / ES 2.0 core, exported by libGL and libGLESv2 alike. */
@@ -66,7 +67,7 @@ static void raster_job(int i, void *u)
     else cards_prepare_job(i - FONT_COUNT - 2);
 }
 
-static int g_n_cards, g_n_ui, g_n_text, g_n_spr;
+static int g_n_cards, g_n_ui, g_n_text, g_n_spr, g_n_hart;
 static float g_job_ms[512];
 static int g_profile;
 
@@ -88,7 +89,9 @@ static void paint_one(int i)
     i -= g_n_ui;
     if (i < g_n_text) { text_paint_job(i); return; }
     i -= g_n_text;
-    sprites_paint_job(i);
+    if (i < g_n_spr) { sprites_paint_job(i); return; }
+    i -= g_n_spr;
+    holdem_art_paint_job(i);
 }
 
 int render_init(uint64_t seed)
@@ -109,6 +112,7 @@ int render_init(uint64_t seed)
     text_declare();
     sprites_declare();
     ui_declare();
+    holdem_art_declare();
     int max_tex = 0;
     glGetIntegerv(BPL_GL_MAX_TEXTURE_SIZE, &max_tex);
     if (max_tex <= 0) max_tex = 2048;
@@ -122,8 +126,9 @@ int render_init(uint64_t seed)
     g_n_ui = ui_job_count();
     g_n_text = FONT_COUNT;
     g_n_spr = sprites_job_count();
+    g_n_hart = holdem_art_job_count();
     g_profile = getenv("BPL_RENDER_PROFILE") != NULL;
-    int njobs = g_n_cards + g_n_ui + g_n_text + g_n_spr;
+    int njobs = g_n_cards + g_n_ui + g_n_text + g_n_spr + g_n_hart;
     jobs_run(paint_job, NULL, njobs, 0);
     double t3 = now_ms();
     if (g_profile) {
@@ -131,7 +136,7 @@ int render_init(uint64_t seed)
         double grp[4] = { 0 };
         for (int i = 0; i < njobs && i < 512; i++)
             grp[i < g_n_cards ? 0 : i < g_n_cards + g_n_ui ? 1 : i < g_n_cards + g_n_ui + g_n_text ? 2 : 3] += g_job_ms[i];
-        fprintf(stderr, "RENDER PROFILE: cpu ms cards %.0f, backgrounds %.0f, glyphs %.0f, sprites %.0f\n", grp[0], grp[1], grp[2], grp[3]);
+        fprintf(stderr, "RENDER PROFILE: cpu ms cards %.0f, backgrounds %.0f, glyphs %.0f, sprites + hold'em art %.0f\n", grp[0], grp[1], grp[2], grp[3]);
         for (int k = 0; k < 12; k++) {
             int best = -1;
             for (int i = 0; i < njobs && i < 512; i++)
@@ -148,6 +153,7 @@ int render_init(uint64_t seed)
     text_finish();
     sprites_finish();
     ui_finish();
+    holdem_art_finish();
     double t4 = now_ms();
 
     g_stats.bloom_ok = post_init() == 0;
@@ -182,6 +188,7 @@ void render_shutdown(void)
 {
     if (!g_inited) return;
     post_shutdown();
+    holdem_art_shutdown();
     ui_shutdown();
     text_shutdown();
     atlas_shutdown();

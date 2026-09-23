@@ -271,6 +271,18 @@ static void result(const HoldemViewInfo *v, double time)
     text_c("DEAL: PLAY AGAIN        CASH OUT: MENU", PLAY_W / 2, 400, 28, RAYWHITE);
 }
 
+void holdem_view_update(const HoldemViewInfo *v, const GameEvent *ev, int nev, float dt)
+{
+    if (app_holdem_view && app_holdem_view->update) app_holdem_view->update(v, ev, nev, dt);
+    else holdem_placeholder_update(v, ev, nev, dt);
+}
+
+void holdem_view_draw(const HoldemViewInfo *v, double time)
+{
+    if (app_holdem_view && app_holdem_view->view) app_holdem_view->view(v, time);
+    else holdem_placeholder_view(v, time);
+}
+
 void holdem_placeholder_view(const HoldemViewInfo *v, double time)
 {
     const HoldemGame *g = v->game;

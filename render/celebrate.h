@@ -45,6 +45,7 @@ typedef struct {
     int     skipping;
     long long amount;
     char    title[32];
+    char    label[24];        /* the meter caption; "" = the tier default */
     Vector2 focus;            /* the winning cards' centre              */
     Meter   meter;
     Flash   flash;
@@ -62,6 +63,9 @@ typedef struct {
 void celeb_init(Celebration *c, Shake *shake, FxClock *clock, BulbRing *bulbs, CelebCueFn cue, void *user);
 /* title NULL = the tier's default ("WINNER", "BIG WIN", "JACKPOT"). */
 void celeb_start(Celebration *c, WinTier tier, long long amount, const char *title, Vector2 focus);
+/* Caption for the count-up meter of this celebration (call after
+ * celeb_start; NULL or "" = "YOU WIN" / "JACKPOT PAYS"). */
+void celeb_set_label(Celebration *c, const char *label);
 void celeb_skip(Celebration *c);
 /* dt = the presentation's (clock-scaled) dt; real_dt drives timers that
  * must not slow down (the takeover's length). */

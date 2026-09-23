@@ -50,6 +50,7 @@ void celeb_start(Celebration *c, WinTier tier, long long amount, const char *tit
     c->next_fx = 0;
     const char *def = tier == WIN_JACKPOT ? "JACKPOT" : tier == WIN_BIG ? "BIG WIN" : "WINNER";
     snprintf(c->title, sizeof c->title, "%s", title ? title : def);
+    c->label[0] = 0;
     meter_set(&c->meter, 0);
     c->meter.on_tick = on_tick;
     c->meter.on_end = on_end;
@@ -229,7 +230,7 @@ void celeb_draw_front(const Celebration *c, double time)
                 float mo = clampf((lt - 0.35f) / 0.3f, 0, 1) * (1 - c->out);
                 if (mo > 0.02f) {
                     Rectangle r = { PLAY_W * 0.5f - 180, 330 + 30 * (1 - ease(EASE_OUT_BACK, mo)), 360, 104 };
-                    meter_draw(&c->meter, r, "YOU WIN", UI_GOLD);
+                    meter_draw(&c->meter, r, c->label[0] ? c->label : "YOU WIN", UI_GOLD);
                 }
             }
             break;
@@ -241,7 +242,7 @@ void celeb_draw_front(const Celebration *c, double time)
                 float mo = clampf((lt - 0.9f) / 0.35f, 0, 1) * (1 - c->out);
                 if (mo > 0.02f) {
                     Rectangle r = { PLAY_W * 0.5f - 210, 340 + 40 * (1 - ease(EASE_OUT_BACK, mo)), 420, 120 };
-                    meter_draw(&c->meter, r, "JACKPOT PAYS", UI_MAGENTA);
+                    meter_draw(&c->meter, r, c->label[0] ? c->label : "JACKPOT PAYS", UI_MAGENTA);
                 }
             }
             break;
@@ -253,4 +254,9 @@ void celeb_draw_front(const Celebration *c, double time)
      * full-screen pass); otherwise it is one additive quad. */
     if (c->flash.v > 0.01f && !post_flash(c->flash.v, c->flash.v * 0.96f, c->flash.v * 0.86f))
         gfx_rect(0, 0, PLAY_W, PLAY_H, gfx_add((Color){ 255, 244, 220, 255 }, c->flash.v));
+}
+
+void celeb_set_label(Celebration *c, const char *label)
+{
+    snprintf(c->label, sizeof c->label, "%s", label ? label : "");
 }
