@@ -59,6 +59,16 @@ add_library(bpl_platform STATIC
   app.c
   app_modes.c
   modes_placeholder.c
+  mode_attract.c
+  mode_menu.c
+  mode_draw.c
+  mode_holdem.c
+  service.c
+  selftest.c
+  session.c
+  placeholder_ui.c
+  placeholder_draw.c
+  placeholder_holdem.c
   gputest.c
   ini.c
   input.c
@@ -71,8 +81,20 @@ add_library(bpl_platform STATIC
   options.c
   display_probe.c
 )
+# Credits, stats and settings on disk: pure C, no raylib, so tests/platform
+# can link it on its own.
+add_library(bpl_persist STATIC save.c settings.c)
+target_include_directories(bpl_persist PUBLIC "${BPL_ROOT}")
+target_link_libraries(bpl_persist PUBLIC Threads::Threads)
+target_compile_options(bpl_persist PRIVATE -Wall -Wextra -Werror)
+
 target_include_directories(bpl_platform PUBLIC "${BPL_ROOT}")
 target_link_libraries(bpl_platform PUBLIC bpl_engine bpl_raylib)
+# The real game modes (systems milestone): the games, the AI, audio, the save file.
+# bpl_audio calls raylib but does not link it, so the raylib archive has to come
+# after it again; named by path, as CMake would drop a repeat of the target.
+target_link_libraries(bpl_platform PUBLIC bpl_persist bpl_draw bpl_holdem bpl_ai bpl_audio
+  "${BPL_RAYLIB_DIR}/lib/libraylib.a")
 target_compile_options(bpl_platform PRIVATE -Wall -Wextra -Werror)
 # _GNU_SOURCE for clock_gettime / getrandom / ioctl helpers under -std=c11.
 target_compile_definitions(bpl_platform PUBLIC _GNU_SOURCE)

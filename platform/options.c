@@ -11,6 +11,7 @@
 #include "platform/app.h"
 #include "platform/gputest.h"
 #include "platform/ini.h"
+#include "platform/session.h"
 
 static const char *const g_usage =
     "usage: beese-poker [options]\n"
@@ -53,6 +54,7 @@ static int cfg_handler(void *user, const char *section, const char *key, const c
         }
         return screen_config_set(&o->screen, key, value);
     }
+    if (strcasecmp(section, "game") == 0) return session_config_set(key, value);   /* save dir, assets */
     if (strcasecmp(section, "debug") == 0) {
         if (strcasecmp(key, "overlay") == 0) {
             o->overlay = strcasecmp(value, "on") == 0 || strcmp(value, "1") == 0;

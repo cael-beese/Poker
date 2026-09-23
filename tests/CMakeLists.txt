@@ -17,7 +17,7 @@ bpl_add_test(engine_basics        test_engine_basics.c      bpl_engine Threads::
 
 # Other modules add their tests in their own tests/<module>/CMakeLists.txt,
 # using bpl_add_test, without editing this file.
-foreach(sub draw holdem ai)
+foreach(sub draw holdem ai platform)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${sub}/CMakeLists.txt)
     add_subdirectory(${sub})
   endif()
