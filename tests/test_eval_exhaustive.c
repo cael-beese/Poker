@@ -101,9 +101,9 @@ int main(void)
     /* The budget is 50 ms on x86; the Pi is several times slower per core,
        so it gets a looser bound that still catches an accidental blow-up. */
 #if defined(__x86_64__)
-    CHECK((t1 - t0) < 0.050);
+    CHECK_TIMING((t1 - t0) < 0.050);
 #else
-    CHECK((t1 - t0) < 0.250);
+    CHECK_TIMING((t1 - t0) < 0.250);
 #endif
 
     memset(g_score, 0, sizeof g_score);

@@ -7,6 +7,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 
 static int g_test_failures;
@@ -16,6 +17,30 @@ static int g_test_failures;
         g_test_failures++; \
         if (g_test_failures <= 20) \
             fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+    } \
+} while (0)
+
+/*  Wall-clock budgets.  They are hard failures on the Pi (the target, where
+ *  the budgets mean something) and wherever BPL_STRICT_TIMING=1 is set; on a
+ *  shared development box, where other builds steal the CPU at random, a
+ *  miss is only a warning - it used to fail ctest one run in a few with the
+ *  results themselves correct. */
+static inline int test_strict_timing(void) {
+#if defined(__aarch64__) || defined(__arm__)
+    return 1;
+#else
+    const char *e = getenv("BPL_STRICT_TIMING");
+    return e && e[0] == '1';
+#endif
+}
+#define CHECK_TIMING(cond) do { \
+    if (!(cond)) { \
+        if (test_strict_timing()) { \
+            g_test_failures++; \
+            fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+        } else \
+            fprintf(stderr, "WARNING (timing, not enforced off the Pi) %s:%d: %s\n", \
+                    __FILE__, __LINE__, #cond); \
     } \
 } while (0)
 

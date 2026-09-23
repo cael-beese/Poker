@@ -168,7 +168,7 @@ int main(void)
          worst, worst * 1e6 / eval_ns, BUDGET_MS);
   printf("Pi 4 estimate at 50-70 ns per eval7: %.1f-%.1f ms of the 30 ms budget\n",
          worst * 50.0 / eval_ns, worst * 70.0 / eval_ns);
-  CHECK(worst < BUDGET_MS);
+  CHECK_TIMING(worst < BUDGET_MS);
 
   /* begin() must return at once: it only copies the view. */
   {
@@ -186,7 +186,7 @@ int main(void)
       h.collect(h.ctx, k % 6, &d);
     }
     printf("hooks: begin() returns in at most %.3f ms\n", max_begin * 1e3);
-    CHECK(max_begin < 0.005);   /* a copy and a signal; 5 ms allows for a busy machine */
+    CHECK_TIMING(max_begin < 0.005);   /* a copy and a signal; 5 ms allows for a busy machine */
     ai_pool_destroy(pool);
   }
   return test_finish("ai_timing");
