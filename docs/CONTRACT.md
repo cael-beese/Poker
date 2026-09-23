@@ -195,6 +195,16 @@ typedef struct {
 } HoldemAiHooks;
 ```
 
+  Field meanings (the Hold'em module fills them exactly so):
+  `stack[i]` chips seat i has BEHIND; `bet[i]` chips it has put in on the
+  CURRENT street; `pot` chips from COMPLETED streets only (the AI adds
+  `bet[]` itself); `to_call` = max(bet) - bet[me]; `min_raise` the minimum
+  legal RAISE-TO total; `active[i]` in the hand and able to act, `allin[i]`
+  in the hand and all-in; `history` includes the blind posts, and ACT_ALLIN
+  is recorded only when the all-in is a bet or raise (an all-in that only
+  calls is ACT_CALL). Personalities: `enum { AI_ROCK, AI_MANIAC, AI_SHARK,
+  AI_FISH }` (0-3).
+
   Timing: the table calls `begin` when an AI seat's turn starts, waits at
   least 24 ticks, then calls `collect` and applies the action at tick
   `max(24, decision.think_ticks)` after the turn started. Deterministic, and
