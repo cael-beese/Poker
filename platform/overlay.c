@@ -7,6 +7,7 @@
 #include "raylib.h"
 #include "rlgl.h"
 #include "platform/screen.h"
+#include "platform/settings.h"
 #include "platform/texreg.h"
 
 void overlay_draw(const PerfRing *ring, const PerfFrame *last, const AppCtx *ctx, long rss_kb,
@@ -19,7 +20,7 @@ void overlay_draw(const PerfRing *ring, const PerfFrame *last, const AppCtx *ctx
     if (k < 1) k = 1;
     int size = 20 * k, lh = 24 * k, x = 12 * k, y = 12 * k;
 
-    char lines[8][128];
+    char lines[9][160];
     int n = 0;
     snprintf(lines[n++], sizeof lines[0], "FPS %.1f   frame %.2f ms (avg %.2f, max %.2f)",
              avg > 0 ? 1000.0 / avg : 0.0, last->frame_ms, avg, max);
@@ -34,6 +35,16 @@ void overlay_draw(const PerfRing *ring, const PerfFrame *last, const AppCtx *ctx
              L->scale, L->point ? "point" : "bilinear", L->plane ? "plane" : "gpu",
              rlGetVersion() == RL_OPENGL_ES_20 ? "ES2" : rlGetVersion() == RL_OPENGL_ES_30 ? "ES3" : "3.3",
              startup_ms);
+    /* Effect toggles: upper case = on, lower case = off. */
+    int p = snprintf(lines[n], sizeof lines[0], "fx");
+    for (int i = 0; i < EFFECT_COUNT && p < (int)sizeof lines[0] - 24; i++) {
+        char name[24];
+        snprintf(name, sizeof name, "%s", settings_effect_name(i));
+        for (char *c = name; *c; c++)
+            if (*settings_effect_ptr(&g_settings, i) && *c >= 'a' && *c <= 'z') *c = (char)(*c - 32);
+        p += snprintf(lines[n] + p, sizeof lines[0] - (size_t)p, " %s", name);
+    }
+    n++;
 
     int w = 0;
     for (int i = 0; i < n; i++) {

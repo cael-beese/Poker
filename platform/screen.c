@@ -21,6 +21,7 @@ static ScreenLayout g_layout;
 static RenderTexture2D g_play;        /* gpu path only */
 static SideArtFn g_side_art;
 static void *g_side_user;
+static int g_side_dirty;          /* plane path: background to redraw before the next frame */
 
 /* Honeycomb cache: one render target the size of the larger margin. */
 static RenderTexture2D g_honey;
@@ -131,7 +132,7 @@ void screen_init(const ScreenConfig *c, int plane, int display_w, int display_h)
         g_layout.plane = 1;
         /* What the display controller really does: nearest only if the kernel offers it. */
         g_layout.point = BplDrmPlaneNearest();
-        screen_refresh_side_art();
+        g_side_dirty = 1;          /* drawn before the first frame, see screen_begin_play */
     } else {
         g_play = texreg_load_rt("play space 1280x720", PLAY_W, PLAY_H, 0);
         relayout_gpu();
@@ -148,8 +149,24 @@ void screen_shutdown(void)
 
 void screen_begin_play(Color clear)
 {
+    /* The refresh draws into its own target and ends with EndTextureMode,
+     * which puts the default framebuffer, viewport and projection back. */
+    if (g_side_dirty) screen_refresh_side_art();
     if (!g_layout.plane) BeginTextureMode(g_play);
     ClearBackground(clear);
+}
+
+void screen_resume_play(void)
+{
+    if (g_layout.plane) {
+        /* EndTextureMode already went back to the default framebuffer, whose
+         * viewport and projection are the 1280x720 play space. */
+        rlDrawRenderBatchActive();
+        rlDisableFramebuffer();
+        rlViewport(0, 0, GetScreenWidth(), GetScreenHeight());
+        return;
+    }
+    BeginTextureMode(g_play);
 }
 
 void screen_end_play(void)
@@ -190,11 +207,12 @@ void screen_set_side_art(SideArtFn fn, void *user)
 {
     g_side_art = fn;
     g_side_user = user;
-    if (g_layout.plane) screen_refresh_side_art();
+    if (g_layout.plane) g_side_dirty = 1;
 }
 
 void screen_refresh_side_art(void)
 {
+    g_side_dirty = 0;
     if (!g_layout.plane) return;
     int w = g_layout.screen_w, h = g_layout.screen_h;
     /* Draw the hook once into a display-sized target, read it back and hand

@@ -7,7 +7,7 @@
 #include <strings.h>
 
 static const char *const g_state_names[APP_NSTATES] = {
-    "ATTRACT", "MENU", "DRAW", "HOLDEM", "SERVICE", "GPUTEST"
+    "ATTRACT", "MENU", "DRAW", "HOLDEM", "SERVICE", "GPUTEST", "RENDERTEST"
 };
 
 /* Events of every tick since the last rendered frame, for present_update.
@@ -71,8 +71,9 @@ void app_tick(AppCtx *ctx, const InputFrame *in)
         if (in->pressed & (1u << b)) ev_push(&ctx->events, APP_EV_BUTTON, b, 0, 0);
 
     /* The service button works from every state except the service menu
-     * itself and the GPU test (which is a measurement, not a game). */
-    if ((in->pressed & BTN_SERVICE) && ctx->state != APP_SERVICE && ctx->state != APP_GPUTEST)
+     * itself and the GPU / render tests (measurements, not games). */
+    if ((in->pressed & BTN_SERVICE) && ctx->state != APP_SERVICE && ctx->state != APP_GPUTEST &&
+        ctx->state != APP_RENDERTEST)
         app_request(ctx, APP_SERVICE);
     else if (app_modes[ctx->state] && app_modes[ctx->state]->tick)
         app_modes[ctx->state]->tick(ctx, in);
