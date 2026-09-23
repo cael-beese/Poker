@@ -169,6 +169,36 @@ void ai_decide(const AiView *v, Rng *ai_rng, AiDecision *out);
 
   The Hold'em module builds an `AiView` for the seat to act; the AI module
   never includes `games/holdem` headers. A test checks both.
+
+  Shared definitions (`ai/ai_view.h`, owned by the AI module; the Hold'em
+  module includes only this header from ai/):
+
+```c
+enum { ACT_FOLD, ACT_CHECK, ACT_CALL, ACT_BET, ACT_RAISE, ACT_ALLIN, ACT_POST_SB, ACT_POST_BB };
+/* AiDecision.action is one of FOLD/CHECK/CALL/BET/RAISE/ALLIN; amount is the
+   TOTAL this seat has in front of it this street after acting ("raise to"),
+   not the increment.  The table validates and clamps it (min-raise, stack). */
+/* history[i] = (street << 6) | (seat << 3) | action - every public action of
+   the hand in order, including the blind posts. */
+#define AI_HIST(street, seat, act) ((uint8_t)(((street) << 6) | ((seat) << 3) | (act)))
+
+/* How the table asks for a decision without linking the AI library: the app
+   wires these hooks when it creates the Hold'em game. */
+typedef struct {
+  void *ctx;
+  /* the seat's turn begins: start thinking (may start a worker thread).
+     seed is derived by the table from the hand's seed and the action number,
+     so the same hand replays the same decisions. */
+  void (*begin)(void *ctx, int seat, const AiView *v, uint64_t seed);
+  /* blocks until that decision is ready and returns it */
+  void (*collect)(void *ctx, int seat, AiDecision *out);
+} HoldemAiHooks;
+```
+
+  Timing: the table calls `begin` when an AI seat's turn starts, waits at
+  least 24 ticks, then calls `collect` and applies the action at tick
+  `max(24, decision.think_ticks)` after the turn started. Deterministic, and
+  the worker has 0.4 s or more to finish its fixed trial count.
 - AI decisions must be deterministic too: Monte Carlo runs a **fixed number of
   trials** (sized so it fits in 30 ms on the Pi), on a worker thread, started
   when the seat's turn begins; the decision is applied when the think time
