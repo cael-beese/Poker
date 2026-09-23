@@ -7,7 +7,7 @@
 #include "raylib.h"
 #include "rlgl.h"
 #include "platform/screen.h"
-#include "platform/settings.h"
+#include "platform/fx_settings.h"
 #include "platform/texreg.h"
 
 void overlay_draw(const PerfRing *ring, const PerfFrame *last, const AppCtx *ctx, long rss_kb,
@@ -39,9 +39,9 @@ void overlay_draw(const PerfRing *ring, const PerfFrame *last, const AppCtx *ctx
     int p = snprintf(lines[n], sizeof lines[0], "fx");
     for (int i = 0; i < EFFECT_COUNT && p < (int)sizeof lines[0] - 24; i++) {
         char name[24];
-        snprintf(name, sizeof name, "%s", settings_effect_name(i));
+        snprintf(name, sizeof name, "%s", fx_settings_name(i));
         for (char *c = name; *c; c++)
-            if (*settings_effect_ptr(&g_settings, i) && *c >= 'a' && *c <= 'z') *c = (char)(*c - 32);
+            if (*fx_settings_ptr(&g_effects, i) && *c >= 'a' && *c <= 'z') *c = (char)(*c - 32);
         p += snprintf(lines[n] + p, sizeof lines[0] - (size_t)p, " %s", name);
     }
     n++;

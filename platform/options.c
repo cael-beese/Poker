@@ -11,7 +11,7 @@
 #include "platform/app.h"
 #include "platform/gputest.h"
 #include "platform/ini.h"
-#include "platform/settings.h"
+#include "platform/fx_settings.h"
 
 static const char *const g_usage =
     "usage: beese-poker [options]\n"
@@ -55,7 +55,7 @@ static int cfg_handler(void *user, const char *section, const char *key, const c
         }
         return screen_config_set(&o->screen, key, value);
     }
-    if (strcasecmp(section, "effects") == 0) return settings_effect_set(&g_settings, key, value);
+    if (strcasecmp(section, "effects") == 0) return fx_settings_set(&g_effects, key, value);
     if (strcasecmp(section, "debug") == 0) {
         if (strcasecmp(key, "overlay") == 0) {
             o->overlay = strcasecmp(value, "on") == 0 || strcmp(value, "1") == 0;
@@ -158,7 +158,7 @@ int options_parse(Options *o, int argc, char **argv)
     o->vsync = 1;
     input_defaults(&o->input);
     screen_config_defaults(&o->screen);
-    settings_defaults(&g_settings);
+    fx_settings_defaults(&g_effects);
 
     const char *cfg = NULL;
     for (int i = 1; i < argc; i++) {
@@ -207,7 +207,7 @@ int options_parse(Options *o, int argc, char **argv)
         else if (strcmp(a, "--overlay") == 0) o->overlay = 1;
         else if (strcmp(a, "--fx") == 0) {
             NEED_VALUE();
-            if (settings_effects_parse(&g_settings, v) != 0) { fprintf(stderr, "bad --fx '%s'\n", v); return -1; }
+            if (fx_settings_parse(&g_effects, v) != 0) { fprintf(stderr, "bad --fx '%s'\n", v); return -1; }
         }
         else if (strcmp(a, "--verbose") == 0) o->verbose = 1;
         else if (strcmp(a, "--no-vsync") == 0) o->vsync = 0;

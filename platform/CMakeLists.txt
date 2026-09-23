@@ -58,7 +58,7 @@ endif()
 add_library(bpl_platform STATIC
   app.c
   modes_placeholder.c
-  settings.c
+  fx_settings.c
   gputest.c
   ini.c
   input.c
