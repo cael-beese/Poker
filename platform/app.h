@@ -2,7 +2,8 @@
 /* app.h - the application state machine and the interface every mode plugs into.
  *
  * States: ATTRACT -> MENU -> DRAW | HOLDEM, SERVICE from anywhere (the
- * SERVICE button), plus GPUTEST (the platform's GPU smoke test, --mode gputest).
+ * SERVICE button), plus GPUTEST (the platform's GPU smoke test, --mode gputest)
+ * and RENDERTEST (the renderer's showcase and profiling scene, render/).
  * Each state is served by one AppMode, a table of function pointers. The table
  * of modes is platform/app_modes.c: to plug a real mode in, define an AppMode
  * in your module and point its slot there at it, replacing the placeholder.
@@ -28,7 +29,7 @@
 #include "engine/wallet.h"
 
 typedef enum {
-    APP_ATTRACT, APP_MENU, APP_DRAW, APP_HOLDEM, APP_SERVICE, APP_GPUTEST, APP_NSTATES
+    APP_ATTRACT, APP_MENU, APP_DRAW, APP_HOLDEM, APP_SERVICE, APP_GPUTEST, APP_RENDERTEST, APP_NSTATES
 } AppState;
 
 /* App event types (the 300-399 range of CONTRACT.md). */

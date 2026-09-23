@@ -121,10 +121,13 @@ static void menu_enter(AppCtx *ctx, AppState from)
 static void menu_tick(AppCtx *ctx, const InputFrame *in)
 {
     g_menu.idle = in->down ? 0 : g_menu.idle + 1;
-    if (in->pressed & (BTN_UP | BTN_LEFT | BTN_DOWN | BTN_RIGHT)) g_menu.sel ^= 1;
+    if (in->pressed & (BTN_UP | BTN_LEFT)) g_menu.sel = (g_menu.sel + 2) % 3;
+    if (in->pressed & (BTN_DOWN | BTN_RIGHT)) g_menu.sel = (g_menu.sel + 1) % 3;
     if (in->pressed & BTN_HOLD1) g_menu.sel = 0;
     if (in->pressed & BTN_HOLD2) g_menu.sel = 1;
-    if (in->pressed & (BTN_OK | BTN_DEAL | BTN_START)) app_request(ctx, g_menu.sel ? APP_HOLDEM : APP_DRAW);
+    if (in->pressed & BTN_HOLD3) g_menu.sel = 2;
+    if (in->pressed & (BTN_OK | BTN_DEAL | BTN_START))
+        app_request(ctx, g_menu.sel == 2 ? APP_RENDERTEST : g_menu.sel ? APP_HOLDEM : APP_DRAW);
     if (in->pressed & BTN_BACK) app_request(ctx, APP_ATTRACT);
     /* SPEC: back to attract after 60 s without input. */
     if (g_menu.idle >= 60u * 60u) app_request(ctx, APP_ATTRACT);
@@ -132,10 +135,10 @@ static void menu_tick(AppCtx *ctx, const InputFrame *in)
 
 static void menu_draw(const AppCtx *ctx)
 {
-    backdrop("CHOOSE YOUR GAME", "placeholder menu - UP/DOWN or HOLD1/HOLD2, then DEAL");
-    const char *items[2] = { "DRAW POKER", "TEXAS HOLD'EM" };
-    for (int i = 0; i < 2; i++) {
-        Rectangle r = { 190.0f + i * 470.0f, 220, 430, 260 };
+    backdrop("CHOOSE YOUR GAME", "placeholder menu - UP/DOWN or HOLD1/HOLD2/HOLD3, then DEAL");
+    const char *items[3] = { "DRAW POKER", "TEXAS HOLD'EM", "RENDER TEST" };
+    for (int i = 0; i < 3; i++) {
+        Rectangle r = { 70.0f + i * 390.0f, 220, 360, 260 };
         int on = g_menu.sel == i;
         DrawRectangleRec(r, on ? Fade(C_HONEY, 0.18f) : C_PANEL);
         DrawRectangleLinesEx(r, on ? 4 : 2, on ? C_HONEY : C_DIM);

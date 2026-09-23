@@ -68,6 +68,15 @@ int save_decode(const char *buf, size_t n, SaveData *d, uint64_t *seq, int *unkn
     unsigned long len;
     uint32_t crc;
     if (sscanf(head + ml, "seq=%" SCNu64 " len=%lu crc=%" SCNx32, &s, &len, &crc) != 3) return -1;
+    /* The header must be exactly what save_encode writes for these values.
+       sscanf alone accepts variants - "crc=0A1B..." for "crc=0a1b...", a
+       leading "+", extra spaces - so a damaged header byte could read back
+       as the same numbers and go unnoticed. */
+    {
+        char canon[128];
+        int cl = snprintf(canon, sizeof canon, SAVE_MAGIC "seq=%" PRIu64 " len=%lu crc=%08" PRIx32, s, len, crc);
+        if (cl < 0 || (size_t)cl != hl || memcmp(canon, head, hl) != 0) return -1;
+    }
     const char *payload = nl + 1;
     size_t have = n - (size_t)(payload - buf);
     if (have != len) return -1;                 /* torn (short) or trailing junk */

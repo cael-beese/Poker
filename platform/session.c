@@ -14,6 +14,7 @@
 #include "ai/ai.h"
 #include "audio.h"
 #include "engine/rng.h"
+#include "platform/fx_settings.h"
 #include "platform/save.h"
 
 #define HAND_LOG_ROTATE_BYTES (8L * 1024 * 1024)
@@ -257,6 +258,10 @@ void session_init(AppCtx *ctx)
     ctx->wallet.denom = S.data.settings.denom_cents;
     S.committed_credits = S.data.credits;
     S.hint_on = S.data.settings.hint_default;
+    /* the renderer reads g_effects: the saved toggles, plus any config.ini /
+       --fx overrides for this run (never saved) */
+    g_effects = S.data.settings.effects;
+    fx_settings_apply_overrides(&g_effects);
     open_hand_log();
 
     find_assets(S.info.assets_dir, sizeof S.info.assets_dir);
@@ -348,6 +353,7 @@ uint64_t session_next_seed(void) { return rng_next(&S.seeds); }
 void session_settings_changed(void)
 {
     apply_volumes();
+    g_effects = S.data.settings.effects;        /* a service-menu change goes live */
     if (S.ctx) S.ctx->wallet.denom = S.data.settings.denom_cents;
     S.dirty = 1;
 }

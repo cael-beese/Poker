@@ -12,11 +12,12 @@
 #include "platform/gputest.h"
 #include "platform/ini.h"
 #include "platform/session.h"
+#include "platform/fx_settings.h"
 
 static const char *const g_usage =
     "usage: beese-poker [options]\n"
     "  --config FILE        settings file (default: config.ini next to the binary)\n"
-    "  --mode NAME          start state: attract menu draw holdem service gputest\n"
+    "  --mode NAME          start state: attract menu draw holdem service gputest rendertest\n"
     "  --seed HEX           session seed (default: OS entropy)\n"
     "  --frames N           exit after N rendered frames\n"
     "  --perf-csv FILE      per-frame log: frame,frame_ms,logic_ms,render_ms,draw_calls,...\n"
@@ -27,6 +28,7 @@ static const char *const g_usage =
     "  --lockstep           exactly one tick per frame (reproducible shots/demos)\n"
     "  --gpu-finish         wait for the GPU after render and compose (true GPU ms)\n"
     "  --overlay            start with the F1 debug overlay on\n"
+    "  --fx LIST            effect toggles, e.g. bloom=off,shake=off (none = all off)\n"
     "  --scale MODE         auto | integer | fit | 1x\n"
     "  --filter MODE        auto | point | bilinear\n"
     "  --no-side-art        black margins\n"
@@ -55,6 +57,7 @@ static int cfg_handler(void *user, const char *section, const char *key, const c
         return screen_config_set(&o->screen, key, value);
     }
     if (strcasecmp(section, "game") == 0) return session_config_set(key, value);   /* save dir, assets */
+    if (strcasecmp(section, "effects") == 0) return fx_settings_set(&g_effects, key, value);
     if (strcasecmp(section, "debug") == 0) {
         if (strcasecmp(key, "overlay") == 0) {
             o->overlay = strcasecmp(value, "on") == 0 || strcmp(value, "1") == 0;
@@ -157,6 +160,7 @@ int options_parse(Options *o, int argc, char **argv)
     o->vsync = 1;
     input_defaults(&o->input);
     screen_config_defaults(&o->screen);
+    fx_settings_defaults(&g_effects);
 
     const char *cfg = NULL;
     for (int i = 1; i < argc; i++) {
@@ -203,6 +207,10 @@ int options_parse(Options *o, int argc, char **argv)
         } else if (strcmp(a, "--lockstep") == 0) o->lockstep = 1;
         else if (strcmp(a, "--gpu-finish") == 0) o->gpu_finish = 1;
         else if (strcmp(a, "--overlay") == 0) o->overlay = 1;
+        else if (strcmp(a, "--fx") == 0) {
+            NEED_VALUE();
+            if (fx_settings_parse(&g_effects, v) != 0) { fprintf(stderr, "bad --fx '%s'\n", v); return -1; }
+        }
         else if (strcmp(a, "--verbose") == 0) o->verbose = 1;
         else if (strcmp(a, "--no-vsync") == 0) o->vsync = 0;
         else if (strcmp(a, "--no-side-art") == 0) o->screen.side_art = 0;

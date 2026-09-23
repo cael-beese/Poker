@@ -57,7 +57,6 @@ endif()
 
 add_library(bpl_platform STATIC
   app.c
-  app_modes.c
   modes_placeholder.c
   mode_attract.c
   mode_menu.c
@@ -69,6 +68,7 @@ add_library(bpl_platform STATIC
   placeholder_ui.c
   placeholder_draw.c
   placeholder_holdem.c
+  fx_settings.c
   gputest.c
   ini.c
   input.c
@@ -113,8 +113,16 @@ else()
   target_compile_definitions(bpl_platform PUBLIC BPL_PLATFORM_DESKTOP=1)
 endif()
 
-add_executable(beese-poker main.c)
+# app_modes.c (the mode table) belongs to the executable: it names modes from
+# libraries that depend on bpl_platform, which a static bpl_platform could
+# not reference without a link cycle.
+add_executable(beese-poker main.c app_modes.c)
 target_link_libraries(beese-poker PRIVATE bpl_platform)
+# The renderer (render/, added after this directory) brings the RENDERTEST mode.
+if(EXISTS "${BPL_ROOT}/render/CMakeLists.txt")
+  target_link_libraries(beese-poker PRIVATE bpl_render)
+  target_compile_definitions(beese-poker PRIVATE BPL_HAVE_RENDER=1)
+endif()
 target_compile_options(beese-poker PRIVATE -Wall -Wextra -Werror)
 
 # The binary looks for config.ini next to itself first, so keep a copy there.

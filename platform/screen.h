@@ -74,14 +74,19 @@ void screen_shutdown(void);
 
 void screen_begin_play(Color clear);   /* inside BeginDrawing: start drawing the play space */
 void screen_end_play(void);
+/* Re-binds the play space as the render target without clearing it, after a
+ * renderer drew into its own targets (bloom passes) between begin and end. */
+void screen_resume_play(void);
 void screen_compose(float time);       /* inside BeginDrawing, after the play space */
 
 const ScreenLayout *screen_layout(void);
 /* The play rectangle in raylib's touch/mouse coordinates (for input mapping). */
 Rectangle screen_touch_rect(void);
 
+/* Plane path: the background is (re)drawn before the next frame, once, so a
+ * mode that installs its own side art during init costs one refresh, not two. */
 void screen_set_side_art(SideArtFn fn, void *user);   /* NULL = black margins */
-void screen_refresh_side_art(void);                   /* plane path: redraw the background */
+void screen_refresh_side_art(void);                   /* plane path: redraw the background now */
 
 /* The placeholder side art: a cached neon honeycomb with a slow light sweep. */
 void screen_side_art_honeycomb(const ScreenLayout *L, float time, void *user);

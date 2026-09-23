@@ -17,16 +17,18 @@
 #include <stdint.h>
 
 #define BPL_EFFECTS(X)                                  \
-    X(bloom,        "BLOOM",               1)           \
-    X(particles,    "PARTICLES",           1)           \
-    X(card_anim,    "CARD DEAL / FLIP",    1)           \
-    X(chip_anim,    "CHIP ANIMATION",      1)           \
-    X(screen_shake, "SCREEN SHAKE",        1)           \
-    X(light_chase,  "LIGHT CHASE",         1)           \
-    X(takeover,     "JACKPOT TAKEOVER",    1)           \
-    X(marquee,      "MARQUEE",             1)           \
-    X(hit_pause,    "HIT PAUSE",           1)           \
-    X(side_art,     "SIDE ART ANIMATION",  1)
+    X(bloom,           "BLOOM",               1)        \
+    X(particles,       "PARTICLES",           1)        \
+    X(shake,           "SCREEN SHAKE",        1)        \
+    X(hitpause,        "HIT PAUSE",           1)        \
+    X(marquee_flicker, "MARQUEE FLICKER",     1)        \
+    X(bulb_chase,      "LIGHT CHASE",         1)        \
+    X(shimmer,         "HELD CARD SHIMMER",   1)        \
+    X(card_specular,   "CARD SPECULAR",       1)        \
+    X(card_anim,       "CARD DEAL / FLIP",    1)        \
+    X(chip_anim,       "CHIP ANIMATION",      1)        \
+    X(takeover,        "JACKPOT TAKEOVER",    1)        \
+    X(side_art,        "SIDE ART ANIMATION",  1)
 
 typedef struct {
 #define BPL_FX_FIELD(name, label, def) uint8_t name;
