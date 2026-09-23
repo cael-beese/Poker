@@ -81,7 +81,7 @@ void celeb_start(Celebration *c, WinTier tier, long long amount, const char *tit
         }
         if (c->shake) shake_add(c->shake, 0.85f);
         if (c->bulbs) bulbs_set(c->bulbs, BULBS_FLASH, 10);
-        flash_fire(&c->flash, 0.9f, 0.4f);
+        flash_fire(&c->flash, 0.55f, 0.3f);
         pfx_coin_burst(focus.x, focus.y, 1.0f);
         cue(c, CUE_REVEAL, 0);
         break;

@@ -61,14 +61,27 @@ void render_asset_path(char *out, size_t n, const char *dir, const char *file)
 static void raster_job(int i, void *u)
 {
     (void)u;
-    text_raster_job(i);
+    /* Glyph rasterising and the shared card stock have no dependencies. */
+    if (i < FONT_COUNT + 2) text_raster_job(i);
+    else cards_prepare_job(i - FONT_COUNT - 2);
 }
 
 static int g_n_cards, g_n_ui, g_n_text, g_n_spr;
+static float g_job_ms[512];
+static int g_profile;
+
+static void paint_one(int i);
 
 static void paint_job(int i, void *u)
 {
     (void)u;
+    double t = g_profile ? now_ms() : 0;
+    paint_one(i);
+    if (g_profile && i < 512) g_job_ms[i] = (float)(now_ms() - t);
+}
+
+static void paint_one(int i)
+{
     if (i < g_n_cards) { cards_paint_job(i); return; }
     i -= g_n_cards;
     if (i < g_n_ui) { ui_paint_job(i); return; }
@@ -88,7 +101,7 @@ int render_init(uint64_t seed)
 
     g_stats.fonts_ok = text_load() == 0;
     double t1 = now_ms();
-    jobs_run(raster_job, NULL, FONT_COUNT + 2, 0);
+    jobs_run(raster_job, NULL, FONT_COUNT + 2 + cards_prepare_count(), 0);
     double t2 = now_ms();
 
     atlas_reset();
@@ -109,9 +122,27 @@ int render_init(uint64_t seed)
     g_n_ui = ui_job_count();
     g_n_text = FONT_COUNT;
     g_n_spr = sprites_job_count();
-    jobs_run(paint_job, NULL, g_n_cards + g_n_ui + g_n_text + g_n_spr, 0);
+    g_profile = getenv("BPL_RENDER_PROFILE") != NULL;
+    int njobs = g_n_cards + g_n_ui + g_n_text + g_n_spr;
+    jobs_run(paint_job, NULL, njobs, 0);
     double t3 = now_ms();
+    if (g_profile) {
+        /* Where the start-up time goes: CPU ms per job group, and the slowest jobs. */
+        double grp[4] = { 0 };
+        for (int i = 0; i < njobs && i < 512; i++)
+            grp[i < g_n_cards ? 0 : i < g_n_cards + g_n_ui ? 1 : i < g_n_cards + g_n_ui + g_n_text ? 2 : 3] += g_job_ms[i];
+        fprintf(stderr, "RENDER PROFILE: cpu ms cards %.0f, backgrounds %.0f, glyphs %.0f, sprites %.0f\n", grp[0], grp[1], grp[2], grp[3]);
+        for (int k = 0; k < 12; k++) {
+            int best = -1;
+            for (int i = 0; i < njobs && i < 512; i++)
+                if (g_job_ms[i] >= 0 && (best < 0 || g_job_ms[i] > g_job_ms[best])) best = i;
+            if (best < 0) break;
+            fprintf(stderr, "RENDER PROFILE:   job %3d  %.1f ms\n", best, g_job_ms[best]);
+            g_job_ms[best] = -1;
+        }
+    }
 
+    cards_prepare_free();
     atlas_upload();
     cards_finish();
     text_finish();

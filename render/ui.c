@@ -46,7 +46,8 @@ static void bg_strip(int s)
         uint8_t *row = g_bg_px + (size_t)y * BG_W * 4;
         for (int x = 0; x < BG_W; x++) {
             float fx = x + 0.5f, fy = y + 0.5f;
-            float t = powf(fy / BG_H, 0.8f);
+            float t = fy / BG_H;
+            t = t * (1.6f - 0.6f * t);   /* ~ t^0.8, without powf */
             RCol c = rc_mix(top, bot, t);
             float wx = (fx - 640) / 620, wy = (fy - 440) / 420;
             float w = 1 - (wx * wx + wy * wy);
@@ -95,9 +96,11 @@ static void side_strip(int s)
             if (cov > 0) c = rc_mix(c, honey, (0.10f + 0.35f * glow) * cov);
             else if (e < 6) c = rc_mix(c, honey, 0.05f * glow * (1 - e / 6));
             /* Neon rails along the play-space edge. */
-            float d1 = fabsf(fx - 9), d2 = fabsf(fx - 20);
-            c = rc_mix(c, rc_mix(mag, rc(1, 1, 1, 1), 0.4f), fminf(1, expf(-d1 * d1 / 2.5f) + 0.35f * expf(-d1 / 7)));
-            c = rc_mix(c, cyan, fminf(1, 0.8f * expf(-d2 * d2 / 1.2f) + 0.15f * expf(-d2 / 5)));
+            if (fx < 64) {
+                float d1 = fabsf(fx - 9), d2 = fabsf(fx - 20);
+                c = rc_mix(c, rc_mix(mag, rc(1, 1, 1, 1), 0.4f), fminf(1, expf(-d1 * d1 / 2.5f) + 0.35f * expf(-d1 / 7)));
+                c = rc_mix(c, cyan, fminf(1, 0.8f * expf(-d2 * d2 / 1.2f) + 0.15f * expf(-d2 / 5)));
+            }
             uint8_t *p = row + x * 4;
             p[0] = (uint8_t)(fminf(c.r, 1) * 255);
             p[1] = (uint8_t)(fminf(c.g, 1) * 255);

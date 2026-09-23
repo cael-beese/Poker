@@ -18,7 +18,15 @@
  *
  * For measuring on the Pi, e.g. the jackpot scene for 60 s:
  *   beese-poker --mode rendertest --script "1:RIGHT" --frames 3660 --perf-csv jp.csv
- * and with an effect off: add --fx bloom=off. */
+ * and with an effect off: add --fx bloom=off.
+ *
+ * Layer profiling (development): BPL_RT_PROFILE="0,1,2,..." runs the jackpot
+ * scene in segments of BPL_RT_SEG frames (default 480 = one celebration at
+ * --lockstep), restarting the celebration at each segment, and in segment i
+ * skips the layers in mask i: 1 background, 2 game layer, 4 spotlights,
+ * 8 particles, 16 banner + meter + flash, 32 bulbs, 64 marquee, 128 bloom.
+ * With --gpu-finish, render_ms per segment is each layer's GPU cost. */
+#include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -59,6 +67,21 @@ static struct {
 } R;
 
 static const Vec2f k_shoe = { 1180, -120 };
+
+static int g_prof_mask[32], g_prof_n, g_prof_seg = 480, g_skip;
+static long g_frame;
+
+static void profile_parse(void)
+{
+    const char *s = getenv("BPL_RT_PROFILE");
+    const char *seg = getenv("BPL_RT_SEG");
+    if (seg) g_prof_seg = atoi(seg) > 0 ? atoi(seg) : 480;
+    while (s && *s && g_prof_n < 32) {
+        char *end;
+        g_prof_mask[g_prof_n++] = (int)strtol(s, &end, 0);
+        s = *end == ',' ? end + 1 : NULL;
+    }
+}
 
 static float card_x(int i) { return 640.0f + (float)(i - 2) * 224.0f; }
 #define CARD_Y 414.0f
@@ -155,6 +178,7 @@ static void rt_init(AppCtx *ctx)
     marquee_init(&R.marquee, 1);
     R.stress_n = 1000;
     R.credits_v = 1000;
+    profile_parse();
     meter_set(&R.credits, (double)R.credits_v);
 }
 
@@ -277,6 +301,12 @@ static void rt_update(const AppCtx *ctx, const GameEvent *ev, int nev, float rea
     if (pr & BTN_BET_ONE) ui_button_press(&R.btn[0]);
     if (pr & BTN_BET_MAX) ui_button_press(&R.btn[1]);
 
+    if (g_prof_n) {
+        long seg = g_frame / g_prof_seg;
+        g_skip = g_prof_mask[seg < g_prof_n ? seg : g_prof_n - 1];
+        g_effects.bloom = !(g_skip & 128);
+        if (g_frame % g_prof_seg == 0) start_scene(SC_JACKPOT);
+    }
     float dt = clock_step(&R.clock, real_dt);
     R.time = R.clock.time;
     shake_update(&R.shake, real_dt);
@@ -427,11 +457,12 @@ static void rt_draw(const AppCtx *ctx)
     shake_offset(&R.shake, &dx, &dy, &deg);
     float dim = celeb_dim(&R.cel);
 
+    g_frame++;
     render_begin();
-    ui_background(R.time, dim);
+    if (!(g_skip & 1)) ui_background(R.time, dim);
     gfx_push_offset(dx, dy, deg, PLAY_W * 0.5f, PLAY_H * 0.5f);
     gfx_set_tint(dim, dim, dim);
-    switch (R.scene) {
+    switch (g_skip & 2 ? -1 : R.scene) {
     case SC_SHOWCASE:
     case SC_JACKPOT:
         draw_paytable(dim);
@@ -443,12 +474,12 @@ static void rt_draw(const AppCtx *ctx)
     default: break;
     }
     gfx_set_tint(1, 1, 1);
-    celeb_draw_back(&R.cel, R.time);
-    pfx_draw();
-    celeb_draw_front(&R.cel, R.time);
+    if (!(g_skip & 4)) celeb_draw_back(&R.cel, R.time);
+    if (!(g_skip & 8)) pfx_draw();
+    if (!(g_skip & 16)) celeb_draw_front(&R.cel, R.time);
     gfx_pop_offset();
-    bulbs_draw(&R.bulbs);
-    marquee_draw(&R.marquee, PLAY_W * 0.5f, 66, 0.9f);
+    if (!(g_skip & 32)) bulbs_draw(&R.bulbs);
+    if (!(g_skip & 64)) marquee_draw(&R.marquee, PLAY_W * 0.5f, 66, 0.9f);
     if (R.scene == SC_PARTICLES) {
         char buf[64];
         snprintf(buf, sizeof buf, "%d PARTICLES", pfx_count());

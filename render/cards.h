@@ -35,6 +35,9 @@ float card_h(CardSize s);
 
 /* Start-up (render.c). */
 void cards_declare(void);
+int  cards_prepare_count(void);  /* shared blank stock, painted before the faces */
+void cards_prepare_job(int i);
+void cards_prepare_free(void);
 int  cards_job_count(void);
 void cards_paint_job(int i);     /* any thread */
 void cards_finish(void);         /* after the atlas upload */

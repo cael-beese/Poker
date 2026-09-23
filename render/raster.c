@@ -92,13 +92,13 @@ float rnoise_value(float x, float y, uint32_t seed)
 float hex_grid_dist(float x, float y, float r, int *cq, int *cr)
 {
     /* Pointy-top hex grid: two offset rectangular lattices, take the nearer centre. */
-    const float w = 1.7320508f * r, h = 3.0f * r;
-    float ax = fmodf(x, w); if (ax < 0) ax += w;
-    float ay = fmodf(y, h); if (ay < 0) ay += h;
-    ax -= w * 0.5f; ay -= h * 0.5f;
-    float bx = fmodf(x - w * 0.5f, w); if (bx < 0) bx += w;
-    float by = fmodf(y - h * 0.5f, h); if (by < 0) by += h;
-    bx -= w * 0.5f; by -= h * 0.5f;
+    const float w = 1.7320508f * r, h = 3.0f * r, iw = 1.0f / w, ih = 1.0f / h;
+    /* Wrap into each lattice's cell with floor (fmodf is slow). */
+    float ax = x - floorf(x * iw) * w - w * 0.5f;
+    float ay = y - floorf(y * ih) * h - h * 0.5f;
+    float xb = x - w * 0.5f, yb = y - h * 0.5f;
+    float bx = xb - floorf(xb * iw) * w - w * 0.5f;
+    float by = yb - floorf(yb * ih) * h - h * 0.5f;
     float gx, gy;
     int use_a = ax * ax + ay * ay < bx * bx + by * by;
     if (use_a) { gx = ax; gy = ay; } else { gx = bx; gy = by; }
@@ -371,24 +371,56 @@ void cv_fill(Canvas *cv, const Xf *xfp, const Shape *s, int n, const Paint *pain
     if (y1 > cv->h) y1 = cv->h;
 
     float soft = 1.0f + o.feather;
-    for (int y = y0; y < y1; y++) {
-        uint8_t *row = cv->px + ((size_t)y * (size_t)cv->stride) * 4;
-        float py = (float)y + 0.5f;
-        for (int x = x0; x < x1; x++) {
-            float px = (float)x + 0.5f;
-            float lx = inv.ax * px + inv.bx * py + inv.tx, ly = inv.ay * px + inv.by * py + inv.ty;
-            float d = shape_sdf(s, n, lx, ly) * scale - o.offset;
-            float cov;
-            if (o.outline > 0) d = fabsf(d) - o.outline * 0.5f;
-            cov = 0.5f - d / soft;
-            cov = cov < 0 ? 0 : cov > 1 ? 1 : cov;
-            if (o.glow > 0 && d > 0) {
-                float g = expf(-d / o.glow);
-                if (g > cov) cov = g;
+    float glow_reach = o.glow > 0 ? o.glow * 5.6f : 0.0f;
+    /* Block culling: the distances are (close to) Lipschitz, so one sample
+     * at an 8x8 block's centre bounds the whole block. Blocks the edge cannot
+     * reach are skipped; blocks wholly inside a fill skip the SDF. Only with
+     * a uniform scale, where pixel distances are true distances. */
+    float nx = sqrtf(xf.ax * xf.ax + xf.ay * xf.ay), ny = sqrtf(xf.bx * xf.bx + xf.by * xf.by);
+    int cull = fabsf(nx - ny) < 0.02f * fmaxf(nx, ny);
+    const int B = 8;
+    for (int by = y0; by < y1; by += B) {
+        int bh = y1 - by < B ? y1 - by : B;
+        for (int bx = x0; bx < x1; bx += B) {
+            int bw = x1 - bx < B ? x1 - bx : B;
+            int inside = 0;
+            if (cull) {
+                float cxp = (float)bx + bw * 0.5f, cyp = (float)by + bh * 0.5f;
+                float lcx = inv.ax * cxp + inv.bx * cyp + inv.tx, lcy = inv.ay * cxp + inv.by * cyp + inv.ty;
+                float dc = shape_sdf(s, n, lcx, lcy) * scale - o.offset;
+                float hd = 0.5f * sqrtf((float)(bw * bw + bh * bh)) + 0.5f;
+                if (o.outline > 0) {
+                    if (fabsf(dc) - hd > o.outline * 0.5f + soft * 0.5f + glow_reach) continue;
+                } else {
+                    if (dc - hd > soft * 0.5f + glow_reach) continue;
+                    if (dc + hd < -soft * 0.5f) inside = 1;
+                }
             }
-            if (cov <= 0.0f) continue;
-            RCol c = paint_at(paint, lx, ly, d);
-            put(row + (size_t)x * 4, c, cov * o.opacity, o.blend);
+            for (int y = by; y < by + bh; y++) {
+                uint8_t *row = cv->px + ((size_t)y * (size_t)cv->stride) * 4;
+                float py = (float)y + 0.5f;
+                for (int x = bx; x < bx + bw; x++) {
+                    float px = (float)x + 0.5f;
+                    float lx = inv.ax * px + inv.bx * py + inv.tx, ly = inv.ay * px + inv.by * py + inv.ty;
+                    float d, cov;
+                    if (inside) {
+                        d = -soft;
+                        cov = 1;
+                    } else {
+                        d = shape_sdf(s, n, lx, ly) * scale - o.offset;
+                        if (o.outline > 0) d = fabsf(d) - o.outline * 0.5f;
+                        cov = 0.5f - d / soft;
+                        cov = cov < 0 ? 0 : cov > 1 ? 1 : cov;
+                        if (o.glow > 0 && d > 0) {
+                            float g = expf(-d / o.glow);
+                            if (g > cov) cov = g;
+                        }
+                        if (cov <= 0.0f) continue;
+                    }
+                    RCol c = paint_at(paint, lx, ly, d);
+                    put(row + (size_t)x * 4, c, cov * o.opacity, o.blend);
+                }
+            }
         }
     }
 }

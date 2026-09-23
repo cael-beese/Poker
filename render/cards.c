@@ -4,6 +4,7 @@
 #include "render/cards.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "platform/fx_settings.h"
@@ -446,13 +447,8 @@ static void paint_court(Canvas *cv, float k, int rank, int suit)
 {
     const float px = 36, py = 34, pw = 128, ph = 212;
     Xf card = xf_make(0, 0, k, 0);
-    /* The panel: dark honeycomb with a brass frame. */
+    /* The dark honeycomb panel itself is part of the court stock. */
     Shape panel[1] = { { SH_RBOX, OP_UNION, { px + pw / 2, py + ph / 2, pw / 2, ph / 2, 5 }, NULL, 0 } };
-    PanelP pp = { rc_hex(0x2C1532, 1), rc_hex(0x100A14, 1), rc_hex(ART_HONEY, 1) };
-    Xf pxf = xf_mul(card, xf_make(px, py, 1, 0));
-    Shape panel_local[1] = { { SH_RBOX, OP_UNION, { pw / 2, ph / 2, pw / 2, ph / 2, 5 }, NULL, 0 } };
-    Paint ppaint = paint_fn(panel_paint, &pp);
-    cv_fill(cv, &pxf, panel_local, 1, &ppaint, NULL);
 
     Xf top = xf_mul(card, xf_make(px, py, 1, 0));
     Xf bottom = xf_mul(card, xf_mul(xf_rot180_about(100, 140), xf_make(px, py, 1, 0)));
@@ -477,14 +473,25 @@ static void paint_court(Canvas *cv, float k, int rank, int suit)
 
 /* ---- the card ----------------------------------------------------------- */
 
+/* The brushed-brass rim: a band from the card's edge inwards, so the
+ * expensive brass paint only runs where it shows. */
+static void paint_rim(Canvas *cv, float k, uint32_t seed)
+{
+    Xf xf = xf_make(0, 0, k, 0);
+    Shape outer[1] = { { SH_RBOX, OP_UNION, { 100, 140, 100, 140, 14 }, NULL, 0 } };
+    BrassParams bp = { 0.55f, seed, 0.5f };
+    Paint brass = paint_fn(art_brass, &bp);
+    FillOpt band = { 0 };
+    band.outline = 7.0f * k + 1;
+    band.offset = -(7.0f * k + 1) * 0.5f;
+    cv_fill(cv, &xf, outer, 1, &brass, &band);
+}
+
 static void paint_stock(Canvas *cv, float k)
 {
     Xf xf = xf_make(0, 0, k, 0);
     /* Brushed-brass edge, then the ivory face inside it. */
-    Shape outer[1] = { { SH_RBOX, OP_UNION, { 100, 140, 100, 140, 14 }, NULL, 0 } };
-    BrassParams bp = { 0.55f, 17, 0.5f };
-    Paint brass = paint_fn(art_brass, &bp);
-    cv_fill(cv, &xf, outer, 1, &brass, NULL);
+    paint_rim(cv, k, 17);
     Shape inner[1] = { { SH_RBOX, OP_UNION, { 100, 140, 95, 135, 10 }, NULL, 0 } };
     FillOpt shade = { 0 };
     shade.offset = 1.0f * k;
@@ -494,17 +501,61 @@ static void paint_stock(Canvas *cv, float k)
     cv_fill(cv, &xf, inner, 1, &paper, NULL);
 }
 
+/* Blank stock shared by many faces, painted once per size and copied:
+ * 0 pip cards (with the thin inner frame), 1 court cards (with the dark
+ * honeycomb panel), 2 aces (plain). Filled by cards_prepare_job. */
+enum { STOCK_PIPS, STOCK_COURT, STOCK_ACE, NSTOCK };
+static uint8_t *g_stock[CARD_NSIZES][NSTOCK];
+
+int cards_prepare_count(void) { return CARD_NSIZES * NSTOCK; }
+
+void cards_prepare_job(int i)
+{
+    int s = i / NSTOCK, kind = i % NSTOCK;
+    float k = (float)k_w[s] / 200.0f;
+    if (!g_stock[s][kind]) g_stock[s][kind] = calloc((size_t)k_w[s] * k_h[s], 4);
+    if (!g_stock[s][kind]) return;
+    Canvas cv = { g_stock[s][kind], k_w[s], k_h[s], k_w[s] };
+    paint_stock(&cv, k);
+    Xf xf = xf_make(0, 0, k, 0);
+    if (kind == STOCK_PIPS) {
+        Shape frame[1] = { { SH_RBOX, OP_UNION, { 100, 140, 89, 129, 7 }, NULL, 0 } };
+        FillOpt thin = { 0 };
+        thin.outline = fmaxf(0.8f, 0.9f * k);
+        Paint fp = paint_solid(rc_hex(0xB88A3A, 0.45f));
+        cv_fill(&cv, &xf, frame, 1, &fp, &thin);
+    } else if (kind == STOCK_COURT) {
+        const float px = 36, py = 34, pw = 128, ph = 212;
+        PanelP pp = { rc_hex(0x2C1532, 1), rc_hex(0x100A14, 1), rc_hex(ART_HONEY, 1) };
+        Xf pxf = xf_mul(xf, xf_make(px, py, 1, 0));
+        Shape panel_local[1] = { { SH_RBOX, OP_UNION, { pw / 2, ph / 2, pw / 2, ph / 2, 5 }, NULL, 0 } };
+        Paint ppaint = paint_fn(panel_paint, &pp);
+        cv_fill(&cv, &pxf, panel_local, 1, &ppaint, NULL);
+    }
+}
+
+void cards_prepare_free(void)
+{
+    for (int s = 0; s < CARD_NSIZES; s++)
+        for (int k = 0; k < NSTOCK; k++) {
+            free(g_stock[s][k]);
+            g_stock[s][k] = NULL;
+        }
+}
+
+static void copy_stock(Canvas *cv, int s, int kind)
+{
+    const uint8_t *src = g_stock[s][kind];
+    if (!src) { paint_stock(cv, (float)k_w[s] / 200.0f); return; }
+    for (int y = 0; y < cv->h; y++)
+        memcpy(cv->px + (size_t)y * cv->stride * 4, src + (size_t)y * k_w[s] * 4, (size_t)k_w[s] * 4);
+}
+
 static void paint_face(Canvas *cv, int size_class, Card c)
 {
     float k = (float)k_w[size_class] / 200.0f;
     int rank = card_rank(c), suit = card_suit(c);
-    paint_stock(cv, k);
-    Xf xf = xf_make(0, 0, k, 0);
-    Shape frame[1] = { { SH_RBOX, OP_UNION, { 100, 140, 89, 129, 7 }, NULL, 0 } };
-    FillOpt thin = { 0 };
-    thin.outline = fmaxf(0.8f, 0.9f * k);
-    Paint fp = paint_solid(rc_hex(0xB88A3A, 0.45f));
-    if (rank < 9) cv_fill(cv, &xf, frame, 1, &fp, &thin);
+    copy_stock(cv, size_class, rank == 12 ? STOCK_ACE : rank >= 9 ? STOCK_COURT : STOCK_PIPS);
 
     if (rank == 12) paint_ace(cv, k, suit);
     else if (rank >= 9) paint_court(cv, k, rank, suit);
@@ -520,10 +571,9 @@ static void paint_back(Canvas *cv, int size_class, int variant)
 {
     float k = (float)k_w[size_class] / 200.0f;
     Xf xf = xf_make(0, 0, k, 0);
-    Shape outer[1] = { { SH_RBOX, OP_UNION, { 100, 140, 100, 140, 14 }, NULL, 0 } };
+    paint_rim(cv, k, 23);
     BrassParams bp = { 0.55f, 23, 0.5f };
     Paint brass = paint_fn(art_brass, &bp);
-    cv_fill(cv, &xf, outer, 1, &brass, NULL);
     RCol neon = variant ? rc_hex(ART_CYAN, 1) : rc_hex(ART_MAGENTA, 1);
     Shape inner[1] = { { SH_RBOX, OP_UNION, { 100, 140, 95, 135, 10 }, NULL, 0 } };
     BackP bk = { variant ? rc_hex(0x0E2A36, 1) : rc_hex(0x3A1242, 1), rc_hex(0x0C080E, 1), rc_hex(ART_HONEY, 1), 10.5f,
