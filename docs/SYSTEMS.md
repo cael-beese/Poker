@@ -164,3 +164,10 @@ read-only `DrawViewInfo` / `HoldemViewInfo` / `MenuViewInfo` /
 `*_placeholder_update(info, events, n, dt)` (cosmetic state, sounds) and
 `*_placeholder_view(info, time)` (draw into 1280x720). Replace those two per
 screen; no game logic lives there. Effects read `effects_get()`.
+
+The Draw, menu and attract screens are called through a table,
+`app_draw_views` (`DrawScreenViews` in `placeholder_view.h`), which the
+executable picks in `platform/app_modes.c` like the mode table: the renderer's
+`draw_views_render` (`render/draw_view.c`, `render/lounge_view.c`) when
+render/ is built, else `draw_views_placeholder`. That keeps `bpl_platform`
+free of any link dependency on `bpl_render`.

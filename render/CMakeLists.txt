@@ -10,9 +10,11 @@ add_library(bpl_render STATIC
   atlas.c
   cards.c
   celebrate.c
+  draw_view.c
   fx.c
   gfx.c
   jobs.c
+  lounge_view.c
   particles.c
   post.c
   raster.c

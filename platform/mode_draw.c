@@ -12,7 +12,8 @@
  *              patterns, computed from the player's own five cards only.
  *   60 s idle between hands (nothing on the meter): attract mode.
  *
- * Presentation is placeholder_draw.c, through draw_placeholder_update/view. */
+ * Presentation: app_draw_views (placeholder_view.h) - render/draw_view.c, or
+ * placeholder_draw.c when the renderer is not built. */
 #include <string.h>
 #include <time.h>
 
@@ -158,14 +159,14 @@ static void draw_mode_present_update(const AppCtx *ctx, const GameEvent *ev, int
     DrawViewInfo v;
     fill(ctx, &v);
     placeholder_common_update(ctx->state, ev, nev, dt);
-    draw_placeholder_update(&v, ev, nev, dt);
+    if (app_draw_views->draw_update) app_draw_views->draw_update(&v, ev, nev, dt);
 }
 
 static void draw_mode_present_draw(const AppCtx *ctx)
 {
     DrawViewInfo v;
     fill(ctx, &v);
-    draw_placeholder_view(&v, ctx->time);
+    if (app_draw_views->draw_view) app_draw_views->draw_view(&v, ctx->time);
 }
 
 const AppMode mode_draw = {

@@ -54,14 +54,14 @@ static void menu_present_update(const AppCtx *ctx, const GameEvent *ev, int nev,
     MenuViewInfo v;
     fill(ctx, &v);
     placeholder_common_update(ctx->state, ev, nev, dt);
-    menu_placeholder_update(&v, ev, nev, dt);
+    if (app_draw_views->menu_update) app_draw_views->menu_update(&v, ev, nev, dt);
 }
 
 static void menu_present_draw(const AppCtx *ctx)
 {
     MenuViewInfo v;
     fill(ctx, &v);
-    menu_placeholder_view(&v, ctx->time);
+    if (app_draw_views->menu_view) app_draw_views->menu_view(&v, ctx->time);
 }
 
 const AppMode mode_menu = {

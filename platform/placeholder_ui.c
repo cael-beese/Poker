@@ -276,3 +276,14 @@ void attract_placeholder_view(const AttractViewInfo *v, double time)
     else neon(v->phase == ATTRACT_DRAW ? "DEMO - DRAW POKER" : "DEMO - TEXAS HOLD'EM", PLAY_W / 2, 658, 40,
               C_MAGENTA, pulse);
 }
+
+/* ---- the placeholder view table ------------------------------------------------ */
+
+const DrawScreenViews draw_views_placeholder = {
+    .draw_update = draw_placeholder_update,
+    .draw_view = draw_placeholder_view,
+    .menu_update = menu_placeholder_update,
+    .menu_view = menu_placeholder_view,
+    .attract_update = NULL,
+    .attract_view = attract_placeholder_view,
+};
