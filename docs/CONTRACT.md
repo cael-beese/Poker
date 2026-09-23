@@ -188,6 +188,12 @@ void ai_decide(const AiView *v, Rng *ai_rng, AiDecision *out);
 - Keep to your directory; if you need a change elsewhere, make the minimal one
   and say so in your report.
 - Source is ASCII. Comments say why, in full sentences.
+- Every source file and script starts with
+  `/* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 - see LICENSE.md */`
+  (`# ...` for shell/CMake, after any shebang). Third-party code keeps its
+  own license and is never committed (raylib is fetched by a script).
+- The repository is public: no machine addresses, personal paths or secrets
+  in anything committed (`<pi-address>`, `/path/to/BeesePokerLounge`).
 - `-Werror` clean, `ctest` green, before every commit.
 - Screenshots: `beese-poker --shot N:file.png[,N:file.png...] --script ...`
   (the platform milestone provides it) - look at your work.
