@@ -107,8 +107,13 @@ if(BPL_PLATFORM STREQUAL "DRM")
   target_include_directories(bpl_platform PRIVATE "${BPL_DRM_INCLUDE}" "${BPL_LIBDRM_INCLUDE}")
   # Draw calls are counted by wrapping the GLES entry points raylib calls
   # directly (see gpustats.c). --wrap has to be on the final link.
+  # --undefined makes the linker take gpustats.o out of the archive even in a
+  # program that never calls into it (the presentation smoke tests link
+  # raylib, whose draw calls are wrapped, but nothing else from gpustats.c),
+  # or the wrapped calls would have no __wrap_ definition to land on.
   target_link_options(bpl_platform INTERFACE
-    "LINKER:--wrap=glDrawElements" "LINKER:--wrap=glDrawArrays")
+    "LINKER:--wrap=glDrawElements" "LINKER:--wrap=glDrawArrays"
+    "LINKER:--undefined=__wrap_glDrawElements" "LINKER:--undefined=__wrap_glDrawArrays")
 else()
   target_compile_definitions(bpl_platform PUBLIC BPL_PLATFORM_DESKTOP=1)
 endif()

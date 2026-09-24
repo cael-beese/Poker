@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 - see LICENSE.md
+#
+# raylib-5.5-ssh-keyboard.patch - applied to platforms/rcore_drm.c by
+# tools/fetch_raylib.sh, after raylib-5.5-drm-plane.patch.
+#
+# With no evdev keyboard (the cabinet's encoder shows up as two gamepads),
+# raylib's DRM platform reads keys from stdin every frame: up to 32 bytes per
+# read(), each one appended to CORE.Input.Keyboard.keyPressedQueue, which has
+# room for 16 and was not bounds-checked. The 17th byte overwrote
+# keyPressedQueueCount with a character code, and later bytes were written
+# past the end of CORE into the next global, rlgl's RLGL.currentBatch; the
+# next batch flush then crashed in rlDrawRenderBatch. Seen on the cabinet on
+# 2026-09-23 when a benchmark loop fed its run list to the game's stdin; a
+# tty paste or a burst of F-key escape sequences can do the same.
+#
+# Fix: only queue a key while there is room, read into an unsigned buffer
+# (the byte indexes currentKeyState) with slack for the escape-sequence
+# lookahead, and queue KEY_BACKSPACE as itself rather than as KEY_ENTER.
+--- a/platforms/rcore_drm.c
++++ b/platforms/rcore_drm.c
+@@ -1555,7 +1555,7 @@
+ 
+     // Keyboard input polling (fill keys[256] array with status)
+     int bufferByteCount = 0;                        // Bytes available on the buffer
+-    char keysBuffer[MAX_KEYBUFFER_SIZE] = { 0 };    // Max keys to be read at a time
++    unsigned char keysBuffer[MAX_KEYBUFFER_SIZE + 4] = { 0 };   // BPL: +4 so escape-sequence lookahead stays in bounds
+ 
+     // Read availables keycodes from stdin
+     bufferByteCount = read(STDIN_FILENO, keysBuffer, MAX_KEYBUFFER_SIZE);     // POSIX system call
+@@ -1567,6 +1567,14 @@
+         CORE.Input.Keyboard.keyRepeatInFrame[i] = 0;
+     }
+ 
++    // BPL: the queue holds MAX_KEY_PRESSED_QUEUE keys but a read returns up to
++    // 32 bytes; unchecked, the overflow rewrote keyPressedQueueCount and then
++    // wrote on past the end of CORE (see tools/raylib-5.5-ssh-keyboard.patch).
++    #define BPL_QUEUE_KEY(k) do { \
++        if (CORE.Input.Keyboard.keyPressedQueueCount < MAX_KEY_PRESSED_QUEUE) \
++            CORE.Input.Keyboard.keyPressedQueue[CORE.Input.Keyboard.keyPressedQueueCount++] = (k); \
++    } while (0)
++
+     // Fill all read bytes (looking for keys)
+     for (int i = 0; i < bufferByteCount; i++)
+     {
+@@ -1625,15 +1633,13 @@
+         {
+             CORE.Input.Keyboard.currentKeyState[257] = 1;
+ 
+-            CORE.Input.Keyboard.keyPressedQueue[CORE.Input.Keyboard.keyPressedQueueCount] = 257;     // Add keys pressed into queue
+-            CORE.Input.Keyboard.keyPressedQueueCount++;
++            BPL_QUEUE_KEY(257);     // Add keys pressed into queue
+         }
+         else if (keysBuffer[i] == 0x7f)     // raylib KEY_BACKSPACE
+         {
+             CORE.Input.Keyboard.currentKeyState[259] = 1;
+ 
+-            CORE.Input.Keyboard.keyPressedQueue[CORE.Input.Keyboard.keyPressedQueueCount] = 257;     // Add keys pressed into queue
+-            CORE.Input.Keyboard.keyPressedQueueCount++;
++            BPL_QUEUE_KEY(259);     // Add keys pressed into queue
+         }
+         else
+         {
+@@ -1644,10 +1650,10 @@
+             }
+             else CORE.Input.Keyboard.currentKeyState[(int)keysBuffer[i]] = 1;
+ 
+-            CORE.Input.Keyboard.keyPressedQueue[CORE.Input.Keyboard.keyPressedQueueCount] = keysBuffer[i];     // Add keys pressed into queue
+-            CORE.Input.Keyboard.keyPressedQueueCount++;
++            BPL_QUEUE_KEY(keysBuffer[i]);     // Add keys pressed into queue
+         }
+     }
++    #undef BPL_QUEUE_KEY
+ }
+ #endif  // SUPPORT_SSH_KEYBOARD_RPI
+ 

@@ -62,13 +62,18 @@ build_variant() {
         drm-gles3) platform=PLATFORM_DRM;     graphics=GRAPHICS_API_OPENGL_ES3 ;;
         *) echo "fetch_raylib: unknown variant '$variant'" >&2; exit 2 ;;
     esac
+    # raylib's Makefile adds -O only for its desktop, web and Android
+    # platforms, so PLATFORM_DRM came out at -O0; ask for it explicitly.
+    extra_cflags="-O2"
     # Building natively on the Pi, so tune for the CPU we are on.
     case "$(uname -m)" in
-        aarch64) extra_cflags="-mcpu=native" ;;
+        aarch64) extra_cflags="$extra_cflags -mcpu=native" ;;
     esac
 
     local out="$TP/raylib/$variant"
-    if [ -f "$out/lib/libraylib.a" ] && grep -qx "patches $PATCH_SUM" "$out/BUILD_INFO" 2>/dev/null; then
+    # Rebuilt when the patches or the flags change.
+    if [ -f "$out/lib/libraylib.a" ] && grep -qx "patches $PATCH_SUM" "$out/BUILD_INFO" 2>/dev/null \
+        && grep -qxF "custom_cflags $extra_cflags" "$out/BUILD_INFO"; then
         echo "fetch_raylib: $variant already built ($out)"
         return
     fi

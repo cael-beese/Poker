@@ -240,6 +240,18 @@ static void sfx(int id, float vol, float pitch, float pan)
 #endif
 }
 
+/* A bounded string copy that always terminates.  Used where snprintf("%s")
+   used to be: truncating a label to its box is intended, and GCC -O3 on the
+   Pi (-Wformat-truncation) rejects the snprintf form under -Werror. */
+static void copy_str(char *dst, size_t n, const char *src)
+{
+    if (!n) return;
+    size_t l = strlen(src);
+    if (l >= n) l = n - 1;
+    memcpy(dst, src, l);
+    dst[l] = 0;
+}
+
 static const char *fmt_chips(int64_t v, char *buf, size_t n)
 {
     char tmp[32];
@@ -255,7 +267,7 @@ static const char *fmt_chips(int64_t v, char *buf, size_t n)
         if (left > 0 && left % 3 == 0) out[o++] = ',';
     }
     out[o] = '\0';
-    snprintf(buf, n, "%s", out);
+    copy_str(buf, n, out);
     return buf;
 }
 
@@ -315,7 +327,7 @@ static void split_name(const char *full, char *name, size_t nn, char *badge, siz
     name[0] = badge[0] = '\0';
     if (!full) return;
     const char *p = strstr(full, " (");
-    if (!p) { snprintf(name, nn, "%s", full); return; }
+    if (!p) { copy_str(name, nn, full); return; }
     size_t len = (size_t)(p - full);
     if (len >= nn) len = nn - 1;
     memcpy(name, full, len);
@@ -685,8 +697,8 @@ static void banner(const char *text, const char *sub, float x, float y, float si
     if (!b) b = &P.banner[0];
     memset(b, 0, sizeof *b);
     b->on = 1;
-    snprintf(b->text, sizeof b->text, "%s", text);
-    snprintf(b->sub, sizeof b->sub, "%s", sub ? sub : "");
+    copy_str(b->text, sizeof b->text, text);
+    copy_str(b->sub, sizeof b->sub, sub ? sub : "");
     b->x = x; b->y = y; b->size = size; b->dur = dur; b->rays = rays; b->col = col; b->neon = neon;
 }
 

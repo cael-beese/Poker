@@ -89,9 +89,11 @@ set -u
 while IFS='|' read -r name args; do
     [ -n "\$name" ] || continue
     echo "== \$name"
+    # stdin is the run list: the game must not read it (evdev keyboard
+    # fallback), or later run names come out truncated.
     # shellcheck disable=SC2086
     $BIN --config $OUT/bench.ini --mode rendertest --frames $FRAMES --perf-csv $OUT/\$name.csv \$args \
-        > $OUT/\$name.log 2>&1
+        > $OUT/\$name.log 2>&1 < /dev/null
 done <<'LIST'
 $RUNS
 LIST
