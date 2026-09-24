@@ -49,9 +49,9 @@ typedef struct {
 static const SeatPos k_pos[NSEAT] = {
     { 300, 614, 0, 646, 584, 640, 448, 540, 470, 646, 584 },
     { 124, 468, 0, 252, 392, 360, 408, 346, 466, 262, 382 },
-    { 166, 192, 0, 300, 282, 404, 262, 386, 192, 300, 272 },
+    { 166, 192, 0, 300, 282, 404, 262, 386, 192, 300, 298 },
     { 546, 62, 0, 640, 152, 520, 188, 770, 126, 834, 62 },
-    { 1114, 192, 1, 980, 282, 876, 262, 894, 192, 980, 272 },
+    { 1114, 192, 1, 980, 282, 876, 262, 894, 192, 980, 298 },
     { 1156, 468, 1, 1028, 392, 920, 408, 934, 468, 1018, 382 },
 };
 
@@ -86,7 +86,7 @@ static Vector2 plate_centre(int s)
 /* Side pots spread left and right of the main pot. */
 static Vector2 pot_slot(int i, int n)
 {
-    static const float dx[NSEAT] = { 0, 150, -150, 290, -290, 420 };
+    static const float dx[NSEAT] = { 0, 175, -175, 345, -345, 470 };
     if (n <= 1) return (Vector2){ POT_X, POT_Y };
     return (Vector2){ POT_X + dx[i < NSEAT ? i : NSEAT - 1], POT_Y };
 }
@@ -1860,19 +1860,24 @@ static void draw_pots(const HoldemGame *g)
         if (P.pots[i].amount - P.awarded[i] <= 0) continue;
         if (i == 0) snprintf(s, sizeof s, "MAIN %s", fmt_chips(P.pots[i].amount - P.awarded[i], b, sizeof b));
         else snprintf(s, sizeof s, "SIDE %d  %s", i, fmt_chips(P.pots[i].amount - P.awarded[i], b, sizeof b));
-        pill(x, y + 24, s, FONT_UI_M, 19, i == 0 ? (Color){ 255, 226, 150, 255 } : (Color){ 150, 240, 255, 255 },
-             i == 0 ? (Color){ 180, 130, 50, 255 } : (Color){ 40, 160, 190, 255 }, 1, 1);
-        /* Who can win it: little faces under the label. */
+        /* The label carries who can win it: little faces after the amount. */
         int n = 0;
         for (int st = 0; st < NSEAT; st++) n += (P.pots[i].eligible >> st) & 1;
-        float fx = x - (float)(n - 1) * 12.0f;
+        Color tc = i == 0 ? (Color){ 255, 226, 150, 255 } : (Color){ 150, 240, 255, 255 };
+        Color ec = i == 0 ? (Color){ 180, 130, 50, 255 } : (Color){ 40, 160, 190, 255 };
+        float tw = text_width(FONT_UI_M, s, 18, 0), fw = (float)n * 19.0f;
+        float w = tw + fw + 28, h = 26, lx = x - w * 0.5f, ly = y + 24 - h * 0.5f;
+        gfx_nine(sprite_nine(NINE_RRECT), lx, ly, w, h, 12, gfx_cola((Color){ 12, 8, 14, 255 }, 0.86f));
+        gfx_nine(sprite_nine(NINE_RRECT_LINE), lx, ly, w, h, 12, gfx_col(ec));
+        label(FONT_UI_M, s, lx + 11, y + 24, 18, tc, ALIGN_LEFT, 0);
+        float fx = lx + 17 + tw;
         for (int st = 0; st < NSEAT; st++) {
             if (!((P.pots[i].eligible >> st) & 1)) continue;
             const Spr *face = hart_avatar(P.seat[st].avatar, AVL_FRONT);
             const Spr *bk = hart_avatar(P.seat[st].avatar, AVL_BACK);
-            if (bk) gfx_spr(bk, fx - 11, y + 36, 22, 22, gfx_col(WHITE));
-            if (face) gfx_spr(face, fx - 11, y + 36, 22, 22, gfx_col(WHITE));
-            fx += 24;
+            if (bk) gfx_spr(bk, fx, y + 24 - 9, 18, 18, gfx_col(WHITE));
+            if (face) gfx_spr(face, fx, y + 24 - 9, 18, 18, gfx_col(WHITE));
+            fx += 19;
         }
     }
 }
