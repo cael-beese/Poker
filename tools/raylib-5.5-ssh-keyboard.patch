@@ -18,7 +18,7 @@
 # lookahead, and queue KEY_BACKSPACE as itself rather than as KEY_ENTER.
 --- a/platforms/rcore_drm.c
 +++ b/platforms/rcore_drm.c
-@@ -1555,7 +1555,7 @@
+@@ -1583,7 +1583,7 @@
  
      // Keyboard input polling (fill keys[256] array with status)
      int bufferByteCount = 0;                        // Bytes available on the buffer
@@ -27,7 +27,7 @@
  
      // Read availables keycodes from stdin
      bufferByteCount = read(STDIN_FILENO, keysBuffer, MAX_KEYBUFFER_SIZE);     // POSIX system call
-@@ -1567,6 +1567,14 @@
+@@ -1595,6 +1595,14 @@
          CORE.Input.Keyboard.keyRepeatInFrame[i] = 0;
      }
  
@@ -42,7 +42,7 @@
      // Fill all read bytes (looking for keys)
      for (int i = 0; i < bufferByteCount; i++)
      {
-@@ -1625,15 +1633,13 @@
+@@ -1653,15 +1661,13 @@
          {
              CORE.Input.Keyboard.currentKeyState[257] = 1;
  
@@ -60,7 +60,7 @@
          }
          else
          {
-@@ -1644,10 +1650,10 @@
+@@ -1672,10 +1678,10 @@
              }
              else CORE.Input.Keyboard.currentKeyState[(int)keysBuffer[i]] = 1;
  

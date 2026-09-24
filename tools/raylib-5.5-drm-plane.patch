@@ -22,6 +22,13 @@
 # caches one framebuffer per GBM buffer, instead of raylib's per-frame
 # drmModeAddFB + drmModeSetCrtc + drmModeRmFB. Without atomic KMS or a free
 # overlay plane the unmodified raylib path is used.
+#
+# One frame is kept in flight: a swap commits without waiting, and the next
+# swap waits for that flip before its own commit. Waiting right after each
+# commit (the first version) left the CPU idle while the GPU drew, so a frame
+# only fitted if CPU + GPU < 16.7 ms; the cabinet's royal-flush takeover
+# (~4-6 ms CPU, ~11 ms GPU) missed vblank on 20-30 of 480 frames. Pipelined,
+# the limit is max(CPU, GPU), for one frame (16.7 ms) more input latency.
 --- a/platforms/rcore_drm.c
 +++ b/platforms/rcore_drm.c
 @@ -71,6 +71,9 @@
@@ -34,7 +41,7 @@
  #ifndef EGL_OPENGL_ES3_BIT
      #define EGL_OPENGL_ES3_BIT  0x40
  #endif
-@@ -137,6 +140,307 @@
+@@ -137,6 +140,335 @@
  static PlatformData platform = { 0 };   // Platform specific data
  
  //----------------------------------------------------------------------------------
@@ -58,6 +65,7 @@
 +    uint32_t bgFb, bgHandle, bgPitch;
 +    uint64_t bgSize, bgMapOffset;
 +    int committed, flipPending;
++    struct gbm_bo *pendingBO;           // committed, waiting for its flip
 +} BplPlane;
 +
 +static BplPlane bplPlane = { 0 };
@@ -262,12 +270,42 @@
 +    for (int i = 0; i < 10; i++) drmModeAtomicAddProperty(req, planeId, props[i], v[i]);
 +}
 +
++// Waits until the frame committed last is on screen. The one it replaced is
++// then no longer scanned out and goes back to the GBM surface.
++static void BplWaitFlip(void)
++{
++    if (!bplPlane.flipPending) return;
++    drmEventContext ev = { 0 };
++    ev.version = 2;
++    ev.page_flip_handler = BplFlipHandler;
++    while (bplPlane.flipPending)
++    {
++        struct pollfd pfd = { platform.fd, POLLIN, 0 };
++        if (poll(&pfd, 1, 200) <= 0) { TRACELOG(LOG_WARNING, "DISPLAY: BPL plane: no flip event"); bplPlane.flipPending = 0; break; }
++        drmHandleEvent(platform.fd, &ev);
++    }
++    if (bplPlane.pendingBO)
++    {
++        if (platform.prevBO) gbm_surface_release_buffer(platform.gbmSurface, platform.prevBO);
++        platform.prevBO = bplPlane.pendingBO;
++        bplPlane.pendingBO = NULL;
++    }
++}
++
++// One frame in flight: the commit returns at once and the flip completes at
++// the next vblank after the GPU has finished the frame (the display driver
++// waits on the buffer's fence). Only the NEXT swap waits for that flip, so
++// the CPU builds frame N+1 while the GPU draws frame N, and a frame fits if
++// max(CPU, GPU) does rather than CPU + GPU. Costs one frame of latency.
 +static void BplSwap(void)
 +{
 +    eglSwapBuffers(platform.device, platform.surface);
 +    struct gbm_bo *bo = gbm_surface_lock_front_buffer(platform.gbmSurface);
 +    if (!bo) { TRACELOG(LOG_ERROR, "DISPLAY: Failed GBM to lock front buffer"); return; }
 +    uint32_t fb = BplFbForBo(bo);
++
++    // The kernel takes one pending flip per CRTC.
++    BplWaitFlip();
 +
 +    drmModeAtomicReq *req = drmModeAtomicAlloc();
 +    uint32_t flags;
@@ -289,34 +327,31 @@
 +    int result = drmModeAtomicCommit(platform.fd, req, flags, NULL);
 +    drmModeAtomicFree(req);
 +
-+    if (result != 0) TRACELOG(LOG_ERROR, "DISPLAY: BPL plane: atomic commit failed: %d", result);
++    if (result != 0)
++    {
++        TRACELOG(LOG_ERROR, "DISPLAY: BPL plane: atomic commit failed: %d", result);
++        gbm_surface_release_buffer(platform.gbmSurface, bo);    // never shown
++        return;
++    }
++    if (flags & DRM_MODE_PAGE_FLIP_EVENT)
++    {
++        bplPlane.flipPending = 1;
++        bplPlane.pendingBO = bo;
++    }
 +    else
 +    {
++        // The first (blocking) commit: this buffer is on screen already.
 +        bplPlane.committed = 1;
-+        if (flags & DRM_MODE_PAGE_FLIP_EVENT)
-+        {
-+            // Wait for the flip: the new buffer is on screen, the previous one is free.
-+            drmEventContext ev = { 0 };
-+            ev.version = 2;
-+            ev.page_flip_handler = BplFlipHandler;
-+            bplPlane.flipPending = 1;
-+            while (bplPlane.flipPending)
-+            {
-+                struct pollfd pfd = { platform.fd, POLLIN, 0 };
-+                if (poll(&pfd, 1, 200) <= 0) { TRACELOG(LOG_WARNING, "DISPLAY: BPL plane: no flip event"); bplPlane.flipPending = 0; break; }
-+                drmHandleEvent(platform.fd, &ev);
-+            }
-+        }
++        if (platform.prevBO) gbm_surface_release_buffer(platform.gbmSurface, platform.prevBO);
++        platform.prevBO = bo;
 +    }
-+
-+    if (platform.prevBO) gbm_surface_release_buffer(platform.gbmSurface, platform.prevBO);
-+    platform.prevBO = bo;
 +}
 +
 +// Takes the planes off the CRTC before raylib restores the original mode.
 +static void BplPlaneClose(void)
 +{
 +    if (!bplPlane.active || !bplPlane.committed) return;
++    BplWaitFlip();
 +    drmModeAtomicReq *req = drmModeAtomicAlloc();
 +    drmModeAtomicAddProperty(req, bplPlane.overlayId, bplPlane.op[0], 0);
 +    drmModeAtomicAddProperty(req, bplPlane.overlayId, bplPlane.op[1], 0);
@@ -342,7 +377,7 @@
  // Local Variables Definition
  //----------------------------------------------------------------------------------
  
-@@ -544,6 +848,8 @@
+@@ -544,6 +876,8 @@
  // Swap back buffer with front buffer (screen drawing)
  void SwapScreenBuffer(void)
  {
@@ -351,7 +386,7 @@
      eglSwapBuffers(platform.device, platform.surface);
  
      if (!platform.gbmSurface || (-1 == platform.fd) || !platform.connector || !platform.crtc) TRACELOG(LOG_ERROR, "DISPLAY: DRM initialization failed to swap");
-@@ -854,6 +1160,22 @@
+@@ -854,6 +1188,22 @@
          (platform.connector->modes[platform.modeIndex].flags & DRM_MODE_FLAG_INTERLACE)? 'i' : 'p',
          platform.connector->modes[platform.modeIndex].vrefresh);
  
@@ -374,7 +409,7 @@
      // Use the width and height of the surface for render
      CORE.Window.render.width = CORE.Window.screen.width;
      CORE.Window.render.height = CORE.Window.screen.height;
-@@ -871,8 +1193,8 @@
+@@ -871,8 +1221,8 @@
          return -1;
      }
  
@@ -385,7 +420,7 @@
      if (!platform.gbmSurface)
      {
          TRACELOG(LOG_WARNING, "DISPLAY: Failed to create GBM surface");
-@@ -1078,6 +1400,8 @@
+@@ -1078,6 +1428,8 @@
  // Close platform
  void ClosePlatform(void)
  {
@@ -394,7 +429,7 @@
      if (platform.prevFB)
      {
          drmModeRmFB(platform.fd, platform.prevFB);
-@@ -1116,6 +1440,8 @@
+@@ -1116,6 +1468,8 @@
          platform.crtc = NULL;
      }
  

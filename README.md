@@ -5,8 +5,11 @@ draw poker (plus Bonus Poker and Deuces Wild) and No-Limit Texas Hold'em
 against AI opponents, with a "neon honey lounge" look. Real shuffles, real
 odds, free-play credits only.
 
-**Work in progress.** See [docs/SPEC.md](docs/SPEC.md) for what is being
-built and [docs/CONTRACT.md](docs/CONTRACT.md) for how it fits together.
+Playable, and running on a RetroPie cabinet (Pi 4, 3440x1440) at a locked
+60 fps. Install on a Pi with `./install.sh` (it adds a Ports entry; see
+[docs/SYSTEMS.md](docs/SYSTEMS.md)). [docs/SPEC.md](docs/SPEC.md) is what is
+being built, [docs/CONTRACT.md](docs/CONTRACT.md) how it fits together and
+[docs/PLATFORM.md](docs/PLATFORM.md) the build, tools and measurements.
 
 ## License
 

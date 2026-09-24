@@ -82,13 +82,22 @@ if [ -f "$LAUNCHER" ] && [ -f "$CFG" ]; then
     # runcommand evals the command, so the script's ';' must be quoted.
     printf '%s\n' "beese-poker-check = \"$BIN --script '120:DEAL;300-320:COIN+START' --frames 1200\"" \
                   'default = "beese-poker-check"' > "$CFG"
+    # runcommand starts the command with </dev/tty, as ES gives it tty1. This
+    # script runs detached, with no controlling terminal, so `script` supplies
+    # a pty; without one the redirect fails, the game never starts and the
+    # launcher still exits 0.
     t0=$(date +%s.%N)
-    bash "$LAUNCHER" < /dev/null
+    script -qec "bash \"$LAUNCHER\"" /dev/null < /dev/null > /dev/null
     rc=$?
     t1=$(date +%s.%N)
     mv -f "$CFG.check-bak" "$CFG"
-    echo "round trip: launcher exit $rc after $(echo "$t1 - $t0" | bc) s"
+    echo "round trip: launcher exit $rc after $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "%.1f", b - a }') s"
     grep -E "STARTUP|SAVE|beese-poker:" /dev/shm/runcommand.log 2> /dev/null | sed 's/^/runcommand.log: /'
+    if grep -qE "^beese-poker: [0-9]+ frames" /dev/shm/runcommand.log 2> /dev/null; then
+        echo "round trip: OK (the game ran under runcommand and exited)"
+    else
+        echo "round trip: FAILED (no game exit line in /dev/shm/runcommand.log)"
+    fi
 else
     echo "round trip skipped: $LAUNCHER or $CFG missing"
 fi

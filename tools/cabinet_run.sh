@@ -9,9 +9,11 @@
 #       > run.log 2>&1 < /dev/null
 #
 # What it does:
-#   1. stops a running RetroArch game and EmulationStation. /tmp/es-restart is
-#      removed first so the ES wrapper loop does not relaunch ES;
-#   2. waits until both are gone (the display is free);
+#   1. refuses (exit 3) if a game is running: RetroArch or runcommand. It
+#      never stops someone's game; ask the owner to quit it first;
+#   2. stops EmulationStation. /tmp/es-restart is removed first so the ES
+#      wrapper loop does not relaunch ES, and it waits until ES has stayed
+#      gone for 3 s (the display is free);
 #   3. runs the command (give it --frames or wrap it in `timeout`);
 #   4. always, even on failure or Ctrl-C: `sudo systemctl restart getty@tty1`,
 #      which autologs tty1 in and starts EmulationStation again, then checks
@@ -20,21 +22,31 @@
 set -u
 
 RA_PAT='^/opt/retropie/emulators/retroarch/bin/retroarch'
+RC_PAT='^bash /opt/retropie/supplementary/runcommand/runcommand.sh'
 ES_PAT='supplementary/emulationstation/emulationstation$'
 
-frontend_running() {
-    pgrep -f "$RA_PAT" > /dev/null || pgrep -f "$ES_PAT" > /dev/null
+game_running() {
+    pgrep -f "$RA_PAT" > /dev/null || pgrep -f "$RC_PAT" > /dev/null
 }
 
 stop_frontend() {
     rm -f /tmp/es-restart
-    pkill -f "$RA_PAT"
-    pkill -f "$ES_PAT"
-    for _ in $(seq 1 100); do
-        frontend_running || return 0
+    # Signalled on every pass, not once: right after a restart of tty1 (the
+    # previous run's restore) the autologin is still starting ES, and a single
+    # pkill can land before ES exists. So it counts as stopped only after 3 s
+    # without it.
+    local clear=0
+    for _ in $(seq 1 300); do
+        if game_running; then
+            echo "cabinet_run: a game was started meanwhile; giving up" >&2
+            return 1
+        fi
+        pkill -f "$ES_PAT"
         sleep 0.1
+        if pgrep -f "$ES_PAT" > /dev/null; then clear=0; else clear=$((clear + 1)); fi
+        [ "$clear" -ge 30 ] && return 0
     done
-    echo "cabinet_run: EmulationStation/RetroArch did not stop" >&2
+    echo "cabinet_run: EmulationStation did not stop" >&2
     return 1
 }
 
@@ -54,6 +66,10 @@ restore_frontend() {
 if [ "$#" -eq 0 ]; then
     echo "usage: $0 COMMAND [ARGS...]" >&2
     exit 2
+fi
+if game_running; then
+    echo "cabinet_run: a game is running; not taking over the display" >&2
+    exit 3
 fi
 
 trap restore_frontend EXIT

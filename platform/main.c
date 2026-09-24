@@ -177,6 +177,9 @@ int main(int argc, char **argv)
             f.pressed |= sb & ~script_prev;
             f.down |= sb;
             script_prev = sb;
+            /* Scripted buttons can leave the way held ones do (COIN+START),
+             * so a scripted run tests RetroPie's exit, not just --frames. */
+            if (in.cfg.exit_combo && (sb & in.cfg.exit_combo) == in.cfg.exit_combo) in.exit_requested = 1;
             app_tick(&ctx, &f);
         }
         if (ctx.quit) break;

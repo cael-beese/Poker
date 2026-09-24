@@ -56,8 +56,9 @@ xvfb-run -a -s "-screen 0 3440x1440x24" build-desktop/platform/beese-poker --siz
 
 On the Pi the display belongs to EmulationStation (or a running RetroArch
 game). `tools/cabinet_run.sh` takes it over, runs a command and **always**
-gives it back. Run it on the Pi, detached from the SSH session (a plink call
-chained to a background job can hang):
+gives it back. It refuses while a game is running: someone may be playing,
+so ask them to quit it; never kill it. Run it on the Pi, detached from the
+SSH session (a plink call chained to a background job can hang):
 
 ```sh
 ssh pi@<pi-address>        # or: plink -batch -pwfile <pwfile> pi@<pi-address> '...'
@@ -69,10 +70,10 @@ setsid -f nohup tools/cabinet_run.sh build-drm/platform/beese-poker --frames 360
 What it does, if you need to do it by hand:
 
 ```sh
-# take over: stop a running game and EmulationStation, without the ES
-# wrapper relaunching it, and wait until both are gone
+# take over, only when no game is running (check with pgrep -f runcommand):
+# stop EmulationStation without the ES wrapper relaunching it, and wait until
+# it is gone
 rm -f /tmp/es-restart
-pkill -f "^/opt/retropie/emulators/retroarch/bin/retroarch"
 pkill -f "supplementary/emulationstation/emulationstation$"
 # ... run the game (with --frames N or under `timeout`) ...
 # give it back: tty1 autologin starts EmulationStation again
@@ -276,9 +277,13 @@ platform init, modes init, first frame).
   15.5 ms of GPU time.
 - **drm-plane**: the scaled-plane presentation of section 4, with atomic KMS
   page flips and one framebuffer per buffer (raylib did `drmModeAddFB` +
-  `drmModeSetCrtc` + `drmModeRmFB` every frame).
+  `drmModeSetCrtc` + `drmModeRmFB` every frame), with one frame in flight
+  (section 9a).
+- **ssh-keyboard**: bounds raylib's stdin keyboard queue, which overflowed
+  into rlgl's state (section 9a).
 - `fetch_raylib.sh` also compiles out raylib's F12 screenshot and GIF
-  hotkeys (a cabinet must not write files on a key press).
+  hotkeys (a cabinet must not write files on a key press), and builds with
+  `-O2` (raylib's Makefile adds no `-O` for PLATFORM_DRM).
 - GLES3 build: raylib 5.5 calls `glDrawBuffersEXT`, which Mesa does not
   export; `platform/gpustats.c` forwards it to `glDrawBuffers`.
 
@@ -334,6 +339,59 @@ of it), 0.75-0.81 s warm (InitWindow 0.33 s, drawing and uploading the side
 art 0.35 s). Budget: 4 s.
 
 Builds: raylib 20-24 s per variant (49 s cold); the platform from clean 21 s.
+
+## 9a. The finished game on the cabinet (2026-09-23)
+
+Installed with `./install.sh` to `/opt/beese-poker`, launched as its own Port.
+Same hardware as above; EmulationStation stopped for the runs, every run a
+fresh save directory, `tools/perf_summary.py --skip 120`.
+
+**Presentation pipelining.** The plane path first waited for each frame's
+page flip straight after committing it, so the CPU sat idle while the GPU
+drew and a frame fitted only if CPU + GPU < 16.7 ms. The royal-flush
+takeover (4-6 ms CPU, ~11 ms GPU) missed vblank on 20-30 of 480 frames and
+the Hold'em takeover on 37 of 3,540 (1% lows 30 fps). `BplSwap` now keeps one
+frame in flight: it commits and returns, and the next swap waits for that
+flip; the limit is max(CPU, GPU) for one frame (16.7 ms) of extra input
+latency. See the top of `tools/raylib-5.5-drm-plane.patch`.
+
+| scene | frames | mean ms | p99 ms | 1% low fps | missed | CPU render ms mean / max | draw calls |
+|---|---|---|---|---|---|---|---|
+| Draw: royal flush + takeover (x3) | 480 each | 16.67 | 16.84-16.89 | 59.2-59.3 | 0, 0, 3 (*) | 4.0 / 11.8 | 5-6 |
+| Hold'em takeover, 60 s | 3,540 | 16.67 | 16.84 | 59.3 | 0 | 4.7 / 10.1 | 6 |
+| RENDERTEST jackpot, all effects, 60 s | 3,540 | 16.67 | 16.84 | 59.2 | 0 | 3.8 / 9.4 | 5-6 |
+| attract (title, Draw and Hold'em demos), 68 s | 4,080 | 16.67 | 16.84 | 59.2 | 0 | 3.0 / 9.1 | 5-6 |
+
+(*) One 55 ms CPU stall at the royal reveal, once, in the first run after a
+rebuild; not seen again in three further runs with the page cache dropped
+(one with Mesa's shader cache disabled), whose worst CPU frame was 15.8 ms
+and which missed nothing.
+
+True GPU time (`--gpu-finish`, which serialises CPU and GPU, so these runs
+drop frames themselves): royal count phase 14.5 ms mean / 17.5 max CPU+GPU,
+Hold'em takeover 15.1 / 18.5, jackpot 15.0 / 21.2. Before pipelining, what
+fixed the jackpot was bloom off (0 missed) or particles off (1); bloom at
+1/8 (4); every other effect off alone left 18-28 missed.
+
+Memory and start-up (`tools/cabinet_systems_check.sh`, installed binary):
+peak RSS 84.0-84.6 MB in attract, menu, Draw, Hold'em and service (budget
+150); textures 43.0 MB (budget 64). Cold start to the first attract frame
+with the page cache dropped 3.32-3.58 s (InitWindow 2.3-2.5 s of it; budget
+4 s); from EmulationStation, warm, 1.1 s.
+
+RetroPie round trip: the Ports launcher, through runcommand (with a pty as
+its tty, as ES gives it tty1), the game in attract, DEAL, then COIN+START:
+the game exited at tick 301, runcommand returned, EmulationStation came
+back. The other Ports (WILD 7's, Polybius) were not touched (checksums).
+
+Other fixes found on the cabinet:
+
+- raylib's DRM stdin keyboard (used when no evdev keyboard is present, as on
+  the cabinet) wrote past its 16-key queue and on into rlgl's state; a
+  17-byte burst on stdin crashed the next batch flush.
+  `tools/raylib-5.5-ssh-keyboard.patch` bounds it.
+- raylib's Makefile adds no `-O` for PLATFORM_DRM; `fetch_raylib.sh` now
+  builds every variant with `-O2`.
 
 ## 10. Placeholders and open points
 
