@@ -747,7 +747,10 @@ static void compute_equity(const HoldemGame *g)
     if (n < 2) return;
     uint8_t used[52] = { 0 };
     Card board[5];
-    int nb = g->nboard;
+    /* Only the board cards already turned on the table: the game knows the
+       next card a moment before it lands, and the odds must not tell. */
+    int nb = 0;
+    while (nb < g->nboard && nb < 5 && P.board[nb].on && P.board[nb].flip >= 1 && !P.board[nb].flipping) nb++;
     for (int i = 0; i < nb; i++) { board[i] = g->board[i]; used[board[i]] = 1; }
     for (int i = 0; i < n; i++) { used[g->seat[seats[i]].hole[0]] = 1; used[g->seat[seats[i]].hole[1]] = 1; }
     Card deck[52];
@@ -1283,7 +1286,7 @@ static void on_event(const HoldemViewInfo *v, const HoldemGame *g, const GameEve
                 /* An AI took it: a banner and confetti at its seat, no stinger. */
                 char nm[40];
                 snprintf(nm, sizeof nm, "%s WINS", P.seat[e->a].name[0] ? P.seat[e->a].name : "SEAT");
-                banner(nm, "SIT & GO CHAMPION", 640, 190, 56, 4.0f, 1, UI_GOLD, 0);
+                banner(nm, "SIT & GO CHAMPION", 640, 190, 56, 3.0f, 1, UI_GOLD, 0);
                 pfx_confetti_burst(k_pos[e->a].ax, k_pos[e->a].ay, 0.6f);
                 sfx(SFX_REVEAL, 0.8f, 1.0f, 0);
             }
@@ -1678,8 +1681,8 @@ void holdem_present_update(const HoldemViewInfo *v, const GameEvent *ev, int nev
             clock_hitpause(&P.clock, i == 4 ? 3 : 2);
             shake_add(&P.shake, i == 4 ? 0.3f : 0.15f);
             if (i == 4) sfx(SFX_REVEAL, 0.8f, 1.0f, 0);
-            if (g) compute_equity(g);
         }
+        if ((c->ev & 4) && P.runout && g) compute_equity(g);
     }
     if (landed) sfx(SFX_CARD_DEAL, 0.7f, 1.0f, land_pan);
     if (flipped) sfx(SFX_CARD_FLIP, 0.7f, 1.0f, 0);
@@ -1719,7 +1722,9 @@ void holdem_present_update(const HoldemViewInfo *v, const GameEvent *ev, int nev
     P.level_flash = fmaxf(0, P.level_flash - dt * 0.6f);
     P.rail_mode_t += dt;
     if (P.last_game_over) P.over_t += dt;
-    if (v->phase == HV_RESULT && (!P.cel.active || P.cel.skipping)) P.result_t += dt;
+    /* The result panel waits for the winner's moment: the takeover, or the
+       banner for an AI champion. */
+    if (v->phase == HV_RESULT && (!P.cel.active || P.cel.skipping) && (P.over_t > 2.6f || !P.last_game_over)) P.result_t += dt;
     if (v->phase != HV_RESULT) P.result_t = 0;
     if (v->phase == HV_LOBBY) P.lobby_t += dt;
 
@@ -1893,8 +1898,18 @@ static void draw_dealer_button(void)
     label(FONT_DISP_S, "D", P.btn_x, P.btn_y - 4, 17, (Color){ 40, 30, 20, 255 }, ALIGN_CENTER, 0);
 }
 
+/* The river is on the table and turned: hand names and highlights may show
+ * (the game knows the river a moment before the card lands and flips). */
+static int board_shown(void)
+{
+    for (int i = 0; i < 5; i++)
+        if (!P.board[i].on || P.board[i].flip < 1 || P.board[i].moving) return 0;
+    return 1;
+}
+
 static int showdown_highlight(void)
 {
+    if (!board_shown()) return 0;
     for (int s = 0; s < NSEAT; s++) if (P.seat[s].winner && P.seat[s].best_valid) return 1;
     return 0;
 }
@@ -2063,7 +2078,7 @@ static void draw_tags(const HoldemViewInfo *v, const HoldemGame *g)
         int tabled = s == 0 || f->shown;
         if (!tabled || !(P.hole[s][0].on || P.hole[s][1].on)) continue;
         float hy = s == 0 ? p->cy - 92 : p->sy + 58, hx = s == 0 ? p->cx : p->sx;
-        if (f->hand[0] && f->best_valid && g->nboard >= 5 && (f->shown || s == 0) &&
+        if (f->hand[0] && f->best_valid && board_shown() && (f->shown || s == 0) &&
             (g->phase >= HP_SHOWDOWN || f->winner || P.last_game_over)) {
             float a = clampf(f->hand_t / 0.3f, 0, 1);
             if (f->winner) {
@@ -2073,7 +2088,7 @@ static void draw_tags(const HoldemViewInfo *v, const HoldemGame *g)
             } else if (f->shown || s == 0) {
                 pill(hx, hy, f->hand, FONT_UI_M, 19, (Color){ 220, 214, 204, 255 }, (Color){ 120, 110, 120, 255 }, 0.9f * a, 1);
             }
-        } else if (f->eq_valid && P.runout && g->nboard < 5) {
+        } else if (f->eq_valid && P.runout && !board_shown()) {
             snprintf(b, sizeof b, "%d%%", (int)lrintf(f->eq * 100));
             Color c = f->eq >= 0.5f ? (Color){ 120, 255, 160, 255 } : f->eq >= 0.2f ? UI_GOLD : (Color){ 255, 120, 120, 255 };
             pill(hx, hy, b, FONT_DISP_S, 20, c, c, 1, 1);
@@ -2118,7 +2133,7 @@ static void draw_hud(const HoldemViewInfo *v, const HoldemGame *g)
     } else {
         gold_label(FONT_DISP_S, "SIT & GO DEMO", r.x + r.width - 14, r.y + 20, 20, ALIGN_RIGHT, 0.2f);
     }
-    snprintf(b, sizeof b, "%d PLAYERS LEFT", g->players_left);
+    snprintf(b, sizeof b, g->players_left == 1 ? "%d PLAYER LEFT" : "%d PLAYERS LEFT", g->players_left);
     label(FONT_UI_S, b, r.x + r.width - 14, r.y + 60, 15, (Color){ 170, 160, 150, 255 }, ALIGN_RIGHT, 0);
 }
 
@@ -2267,8 +2282,9 @@ static void draw_result(const HoldemViewInfo *v, const HoldemGame *g, double tim
     float a = clampf(P.result_t / 0.4f, 0, 1);
     if (a <= 0.01f) return;
     float e = ease(EASE_OUT_BACK, a);
-    gfx_rect(0, 0, PLAY_W, PLAY_H, gfx_cola(BLACK, 0.55f * a));
+    gfx_rect(0, 0, PLAY_W, PLAY_H, gfx_cola(BLACK, 0.68f * a));
     Rectangle r = { 300, 70 + 30 * (1 - e), 680, 560 };
+    gfx_nine(sprite_nine(NINE_RRECT), r.x, r.y, r.width, r.height, 16, gfx_cola((Color){ 10, 6, 12, 255 }, 0.9f * a));
     ui_panel(r, v->place == 1 ? UI_GOLD : UI_MAGENTA, 0.5f * a, a);
     if (v->place == 1) text_neon(FONT_NEON_L, "CHAMPION!", 640, r.y + 52, 60, UI_GOLD, a, 1);
     else {
