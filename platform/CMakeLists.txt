@@ -79,6 +79,7 @@ add_library(bpl_platform STATIC
   perf.c
   overlay.c
   options.c
+  panel.c
   display_probe.c
 )
 # Credits, stats and settings on disk: pure C, no raylib, so tests/platform

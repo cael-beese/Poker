@@ -28,6 +28,8 @@ typedef struct {
     int8_t  joy;       /* joystick index, -1 = any joystick               */
     int16_t code;      /* raylib key / button / axis / hat index          */
     int8_t  dir;       /* axis: -1 or +1; hat: JOY_HAT_* bit              */
+    uint8_t hold;      /* seconds it must be held before it counts, 0 = at
+                          once ("JOY1_B9@3"); for SERVICE on the panel     */
 } Binding;
 
 typedef struct {
@@ -47,6 +49,7 @@ typedef struct {
     int16_t  touch_x, touch_y;
     uint8_t  touch;
     int      exit_requested;
+    uint16_t hold_frames[INPUT_NBUTTONS][INPUT_MAX_BINDINGS];   /* for Binding.hold */
 } Input;
 
 void input_defaults(InputConfig *c);
@@ -64,5 +67,10 @@ uint32_t    input_button_from_name(const char *name);
 const char *input_button_name(int bit);      /* bit index 0..18 */
 /* Describes a binding as config text, e.g. "KEY_ENTER", "JOY*_B9". */
 void        input_binding_str(const Binding *b, char *out, int n);
+/* Parses one binding token ("KEY_A", "JOY0_B3", "JOY1_B9@3"); 0 ok. */
+int         input_parse_binding(const char *tok, Binding *b);
+/* Adds a binding to logical button btn (one bit) unless it is already there;
+ * 0 ok, -1 when that button has no free binding left. */
+int         input_add_binding(InputConfig *c, uint32_t btn, const Binding *b);
 
 #endif

@@ -65,7 +65,14 @@ static const char *key_name(int key)
 
 void input_binding_str(const Binding *b, char *out, int n)
 {
-    char joy[8];
+    char joy[8], body[40];
+    if (b->hold && n > 0) {
+        Binding plain = *b;
+        plain.hold = 0;
+        input_binding_str(&plain, body, (int)sizeof body);
+        snprintf(out, (size_t)n, "%s@%d", body, b->hold);
+        return;
+    }
     if (b->joy < 0) snprintf(joy, sizeof joy, "*"); else snprintf(joy, sizeof joy, "%d", b->joy);
     switch (b->kind) {
     case BIND_KEY: snprintf(out, (size_t)n, "%s", key_name(b->code)); break;
@@ -80,6 +87,27 @@ void input_binding_str(const Binding *b, char *out, int n)
 }
 
 /* Parses one binding token. Returns 0 on success. */
+static int parse_binding(const char *tok, Binding *b);
+
+int input_parse_binding(const char *tok, Binding *b)
+{
+    /* "JOY1_B9@3": held for 3 s. */
+    char buf[48];
+    snprintf(buf, sizeof buf, "%s", tok);
+    char *at = strchr(buf, '@');
+    int hold = 0;
+    if (at) {
+        char *end;
+        long s = strtol(at + 1, &end, 10);
+        if (*end || s < 1 || s > 30) return -1;
+        hold = (int)s;
+        *at = 0;
+    }
+    if (parse_binding(buf, b) != 0) return -1;
+    b->hold = (uint8_t)hold;
+    return 0;
+}
+
 static int parse_binding(const char *tok, Binding *b)
 {
     memset(b, 0, sizeof *b);
@@ -146,7 +174,7 @@ static int parse_list(const char *value, Binding *list, int max)
     for (char *save = NULL, *tok = strtok_r(buf, ", \t", &save); tok; tok = strtok_r(NULL, ", \t", &save)) {
         if (strcasecmp(tok, "NONE") == 0) continue;
         if (n >= max) return -1;
-        if (parse_binding(tok, &tmp[n]) != 0) return -1;
+        if (input_parse_binding(tok, &tmp[n]) != 0) return -1;
         n++;
     }
     memset(list, 0, sizeof(Binding) * (size_t)max);
@@ -161,33 +189,53 @@ static void set_defaults_for(InputConfig *c, uint32_t btn, const char *spec)
 }
 
 /* The same defaults as the shipped config.ini, so the game is usable even
- * when the file is missing. JOY bindings follow the cabinet's DragonRise
- * encoders as EmulationStation numbers them (select = B8, start = B9). */
+ * when the file is missing: keyboard, and the joysticks' sticks and hats.
+ * The panel buttons are added by platform/panel.c from where each button is
+ * on the panel (config.ini [panel], or what the LEARN PANEL wizard found). */
 void input_defaults(InputConfig *c)
 {
     memset(c, 0, sizeof *c);
-    set_defaults_for(c, BTN_HOLD1, "KEY_ONE, KEY_Z, JOY0_B0");
-    set_defaults_for(c, BTN_HOLD2, "KEY_TWO, KEY_X, JOY0_B1");
-    set_defaults_for(c, BTN_HOLD3, "KEY_THREE, KEY_C, JOY0_B2");
-    set_defaults_for(c, BTN_HOLD4, "KEY_FOUR, KEY_V, JOY0_B3");
-    set_defaults_for(c, BTN_HOLD5, "KEY_FIVE, KEY_B, JOY0_B4");
-    set_defaults_for(c, BTN_DEAL, "KEY_ENTER, KEY_SPACE, KEY_KP_ENTER, JOY0_B5");
-    set_defaults_for(c, BTN_BET_ONE, "KEY_A, JOY1_B0");
-    set_defaults_for(c, BTN_BET_MAX, "KEY_S, JOY1_B1");
-    set_defaults_for(c, BTN_CASH_OUT, "KEY_Q, JOY1_B2");
-    set_defaults_for(c, BTN_SERVICE, "KEY_F2, KEY_NINE, JOY1_B5");
+    set_defaults_for(c, BTN_HOLD1, "KEY_ONE, KEY_Z");
+    set_defaults_for(c, BTN_HOLD2, "KEY_TWO, KEY_X");
+    set_defaults_for(c, BTN_HOLD3, "KEY_THREE, KEY_C");
+    set_defaults_for(c, BTN_HOLD4, "KEY_FOUR, KEY_V");
+    set_defaults_for(c, BTN_HOLD5, "KEY_FIVE, KEY_B");
+    set_defaults_for(c, BTN_DEAL, "KEY_ENTER, KEY_SPACE, KEY_KP_ENTER");
+    set_defaults_for(c, BTN_BET_ONE, "KEY_A");
+    set_defaults_for(c, BTN_BET_MAX, "KEY_S");
+    set_defaults_for(c, BTN_CASH_OUT, "KEY_Q");
+    set_defaults_for(c, BTN_SERVICE, "KEY_F2, KEY_NINE");
     set_defaults_for(c, BTN_UP, "KEY_UP, JOY*_AXIS1-, JOY*_HAT0_UP");
     set_defaults_for(c, BTN_DOWN, "KEY_DOWN, JOY*_AXIS1+, JOY*_HAT0_DOWN");
     set_defaults_for(c, BTN_LEFT, "KEY_LEFT, JOY*_AXIS0-, JOY*_HAT0_LEFT");
     set_defaults_for(c, BTN_RIGHT, "KEY_RIGHT, JOY*_AXIS0+, JOY*_HAT0_RIGHT");
-    set_defaults_for(c, BTN_OK, "KEY_ENTER, KEY_SPACE, JOY0_B1, JOY0_B5");
-    set_defaults_for(c, BTN_BACK, "KEY_BACKSPACE, JOY0_B2");
-    set_defaults_for(c, BTN_COIN, "KEY_INSERT, JOY*_B8");
-    set_defaults_for(c, BTN_START, "KEY_HOME, JOY*_B9");
+    set_defaults_for(c, BTN_OK, "KEY_ENTER, KEY_SPACE");
+    set_defaults_for(c, BTN_BACK, "KEY_BACKSPACE");
+    set_defaults_for(c, BTN_COIN, "KEY_INSERT");
+    set_defaults_for(c, BTN_START, "KEY_HOME");
     set_defaults_for(c, BTN_DEBUG, "KEY_F1");
     parse_list("KEY_ESCAPE", c->exit_bind, INPUT_MAX_BINDINGS);
     c->exit_combo = BTN_COIN | BTN_START;
     c->touch = 1;
+}
+
+static int same_binding(const Binding *a, const Binding *b)
+{
+    return a->kind == b->kind && a->joy == b->joy && a->code == b->code && a->dir == b->dir && a->hold == b->hold;
+}
+
+int input_add_binding(InputConfig *c, uint32_t btn, const Binding *b)
+{
+    for (int i = 0; i < INPUT_NBUTTONS; i++) {
+        if (btn != (1u << i)) continue;
+        for (int k = 0; k < INPUT_MAX_BINDINGS; k++) {
+            Binding *s = &c->bind[i][k];
+            if (s->kind == BIND_NONE) { *s = *b; return 0; }
+            if (same_binding(s, b)) return 0;
+        }
+        return -1;
+    }
+    return -1;
 }
 
 int input_config_set(InputConfig *c, const char *key, const char *value)
@@ -279,7 +327,17 @@ void input_sample(Input *in, Rectangle play)
             const Binding *b = &in->cfg.bind[i][k];
             if (b->kind == BIND_NONE) break;
             int d;
-            if (binding_state(b, &d)) pressed |= 1u << i;
+            int p = binding_state(b, &d);
+            if (b->hold) {
+                /* Counts only once held long enough (frames at 60 Hz); the
+                   press is the frame it gets there. */
+                uint16_t *hf = &in->hold_frames[i][k];
+                unsigned need = 60u * b->hold;
+                *hf = d ? (uint16_t)(*hf < 0xffff ? *hf + 1 : *hf) : 0;
+                p = *hf == need;
+                d = *hf >= need;
+            }
+            if (p) pressed |= 1u << i;
             if (d) down |= 1u << i;
         }
     }

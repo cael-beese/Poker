@@ -9,6 +9,8 @@
 #ifndef BPL_RENDER_UI_H
 #define BPL_RENDER_UI_H
 
+#include <stdint.h>
+
 #include "raylib.h"
 #include "render/gfx.h"
 #include "render/text.h"
@@ -42,6 +44,18 @@ typedef struct {
 void ui_button_press(UiButton *b);
 void ui_button_update(UiButton *b, UiButtonState st, float dt);
 void ui_button_draw(const UiButton *b, Rectangle r, const char *label, Color neon, UiButtonState st, double time);
+/* The same, with a small drawing of the panel at the left that lights where
+ * logical button(s) key are (panel.h), so a player can see which panel
+ * button it is. key 0 = none. */
+void ui_button_draw_key(const UiButton *b, Rectangle r, const char *label, Color neon, UiButtonState st, double time,
+                        uint32_t key);
+
+/* ---- the panel icon ------------------------------------------------------ */
+/* The cabinet panel in miniature (per side two rows of three buttons, then
+ * SELECT and START), h px high at x,y (top left), with every position that
+ * drives logical button(s) btn lit in c. Returns its width. */
+float ui_panel_glyph(float x, float y, float h, uint32_t btn, Color c, float alpha);
+float ui_panel_glyph_w(float h);
 
 /* ---- the neon marquee sign ---------------------------------------------- */
 typedef struct {

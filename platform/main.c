@@ -29,8 +29,11 @@
 #include "platform/joy_evdev.h"
 #include "platform/options.h"
 #include "platform/overlay.h"
+#include "platform/panel.h"
 #include "platform/perf.h"
 #include "platform/screen.h"
+#include "platform/service.h"
+#include "platform/session.h"
 #include "platform/texreg.h"
 
 static volatile sig_atomic_t g_stop;
@@ -126,6 +129,12 @@ int main(int argc, char **argv)
     int64_t t_platform = perf_now_ns();
     AppCtx ctx;
     app_init(&ctx, seed, (AppState)o.start_state);
+    /* The panel buttons, from where each is wired (panel.h); the save
+     * directory, which holds a learned wiring, is known now. Only a run a
+     * person is playing offers the set-up wizard and the CONTROLS screen. */
+    panel_set_interactive(o.nscript == 0 && o.frames == 0 && o.nshots == 0);
+    panel_init(session_info()->save_dir, &o.input, &in.cfg);
+    if (panel_wizard_due() && o.start_state == APP_ATTRACT) service_request_learn(&ctx, 1);
     int64_t t_app = perf_now_ns();
 
     if (o.perf_csv && perf_csv_open(o.perf_csv) != 0) {

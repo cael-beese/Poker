@@ -14,10 +14,41 @@ SERVICE button; leaving it returns to where you were). Everything works with
 the arcade panel alone: 5 HOLD, DEAL/DRAW, BET ONE, BET MAX, CASH OUT,
 SERVICE (plus COIN and START). UP/DOWN/LEFT/RIGHT/OK/BACK are aliases only.
 
+**Where the buttons are** (`platform/panel.h`). The game lays its buttons
+out by position on the cabinet's two-sided panel (per side a stick, two rows
+of three buttons, SELECT and START), so the top rows of both sides read as
+one video-poker deck:
+
+```
+          PLAYER 1 SIDE                       PLAYER 2 SIDE
+   top:   HOLD 1    HOLD 2    HOLD 3     |    HOLD 4    HOLD 5    DEAL / DRAW
+   bot:   CASH OUT  BET ONE   BET MAX    |    -         -         DEAL / DRAW
+          SELECT = COIN    START         |    SELECT = COIN    START held 3 s = SERVICE
+```
+
+Which encoder input is in which position comes from `[panel]` in
+`config.ini` (a guess: RetroPie's usual 6-button layout) or, once learned,
+from `panel.ini` in the save directory. **LEARN PANEL** in the service menu
+asks for each position in turn ("PLAYER 1 SIDE: PRESS THE TOP LEFT BUTTON")
+and saves the answer; the game offers it by itself on its first interactive
+start when it sees joysticks (no press within 12 s: it gives up and does not
+ask again). While it listens, the panel does nothing else. A position with
+no button is skipped after 12 s; holding any button 3 s cancels.
+
+Players are shown the layout three ways: every on-screen button carries a
+small drawing of the panel with its position lit; the menu has a
+**CONTROLS** page (the fifth choice after the four games), which draws both
+sides with what each button does in Draw Poker and in Hold'em and lights
+whatever is pressed (CASH OUT goes back), and which opens by itself the
+first time a person reaches the menu; and "PRESS DEAL" shows where DEAL is.
+The service menu's INPUT TEST page draws the panel too.
+
 | screen | buttons |
 |---|---|
 | attract | any button: menu (a COIN is credited too) |
-| menu | HOLD 1-4 pick Jacks or Better / Bonus Poker / Deuces Wild / Hold'em; BET ONE next; HOLD 5 strategy hint on/off; DEAL, BET MAX or START play |
+| menu | HOLD 1-4 pick Jacks or Better / Bonus Poker / Deuces Wild / Hold'em; BET ONE or the stick next (the fifth choice is CONTROLS); HOLD 5 strategy hint on/off; DEAL, BET MAX or START play (or open CONTROLS) |
+| CONTROLS page | any button lights up where it is; CASH OUT back to the menu |
+| service | open: SERVICE (P2 START held 3 s, or F2); LEARN PANEL: press each position as asked |
 | Draw, between hands | BET ONE bet 1-5; BET MAX bet 5 and deal; DEAL deal; CASH OUT menu |
 | Draw, holding | HOLD 1-5 hold; DEAL draw; BET ONE hint on/off |
 | Draw, win offered | HOLD 1 double up; HOLD 5 or CASH OUT take the win; DEAL / BET MAX take it and deal |
@@ -113,14 +144,16 @@ save already in it (loads, refuses writes); the prize pool sums exactly.
 
 ## 4. Service menu
 
-Hidden SERVICE button. HOLD 1/2 up/down, HOLD 4/5 value, DEAL choose,
-CASH OUT back. Lines: credits; add credits (10/100/1000/10000); reset credits
-(DEAL twice); denomination; coin value; master / music / SFX volume; music
-on/off; strategy hint default; double-up on/off; Hold'em opponents
+Hidden SERVICE button (on the panel: P2 START held 3 s; F2 on a keyboard).
+HOLD 1/2 up/down, HOLD 4/5 value, DEAL choose, CASH OUT back. Lines:
+credits; add credits (10/100/1000/10000); reset credits (DEAL twice);
+denomination; coin value; master / music / SFX volume; music on/off;
+strategy hint default; double-up on/off; Hold'em opponents
 (easy/normal/hard/expert -> `ai_assign_personalities`); Hold'em buy-in;
-EFFECTS (every toggle); STATISTICS (with measured return per variant); INPUT
-TEST (logical buttons live, raw joystick buttons/axes/hats in ES numbering,
-touch; leave with SERVICE or CASH OUT held 2 s); SOUND TEST (every SfxId by
+EFFECTS (every toggle); STATISTICS (with measured return per variant); LEARN
+PANEL (section 1); INPUT TEST (logical buttons live, raw joystick
+buttons/axes/hats in ES numbering, the panel drawing lit by position, touch;
+leave with SERVICE or CASH OUT held 2 s); SOUND TEST (every SfxId by
 name and length, one or all in turn); SELF-TEST; reset statistics; exit. The
 save status (directory, write count and times, RAM-only warning) is always on
 screen.

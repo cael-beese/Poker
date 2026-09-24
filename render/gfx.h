@@ -53,6 +53,9 @@ void gfx_streak(const Spr *s, Vector2 a, Vector2 b, float w, PCol c);
 void gfx_rect(float x, float y, float w, float h, PCol c);
 void gfx_rect_vgrad(float x, float y, float w, float h, PCol top, PCol bottom);
 void gfx_rect_hgrad(float x, float y, float w, float h, PCol left, PCol right);
+/* A filled circle and a ring of the given thickness, with soft 1 px edges. */
+void gfx_circle(float cx, float cy, float r, PCol c);
+void gfx_ring(float cx, float cy, float r, float thick, PCol c);
 
 /* Nine-slice: a sprite whose corners of size `corner` px stay unscaled. */
 typedef struct { Spr s; float corner; int hollow; } Nine;

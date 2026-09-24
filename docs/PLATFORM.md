@@ -214,13 +214,19 @@ with `JOY*` for any joystick. `EXIT` (ESC) and `EXIT_COMBO` (`COIN+START`)
 leave the game; `SLIDER` names an analogue axis for the Hold'em slider; `TOUCH`
 maps a touchscreen (or the desktop mouse) into play-space coordinates.
 
+The arcade panel buttons are not bound here but by POSITION (`platform/panel.h`,
+`[panel]` in `config.ini`, `panel.ini` from the LEARN PANEL wizard; see
+`docs/SYSTEMS.md` section 1): `panel.c` adds a joystick binding for each
+wired position to the logical buttons that position drives, so the on-screen
+labels can say where a button is. A binding may end in `@<seconds>` to count
+only when held that long (SERVICE on P2 START is `@3`).
+
 Joysticks are read from evdev by `platform/joy_evdev.c`, not through raylib:
 raylib 5.5's DRM backend drops generic joystick buttons (`BTN_TRIGGER..`),
 which is what the cabinet's two DragonRise "USB gamepad" encoders send.
 Numbering follows SDL, i.e. the ids in EmulationStation's `es_input.cfg`
-(select = B8, start = B9). Hot-plug is picked up with inotify. The physical
-panel layout of the cabinet is not mapped yet: the service screen lists each
-joystick and the buttons held, which is how to fill in `config.ini`.
+(select = B8, start = B9). Hot-plug is picked up with inotify. The service
+screen's INPUT TEST lists each joystick and the buttons held.
 
 ## 7. Measuring: F1 overlay, perf CSV, draw calls, textures
 

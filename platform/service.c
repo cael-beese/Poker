@@ -15,7 +15,8 @@
  * Pages: the settings list (credits, denomination, coin value, volumes,
  * music, hint default, double-up, difficulty, buy-in), EFFECTS (every
  * settings.effects toggle), STATISTICS, INPUT TEST, SOUND TEST (every SfxId,
- * one at a time or all in turn), SELF-TEST (selftest.h plus the save
+ * one at a time or all in turn), LEARN PANEL (which encoder input is in
+ * which panel position, see panel.h), SELF-TEST (selftest.h plus the save
  * directory write test, the audio device and the display mode), with a
  * PASS / FAIL summary. The save status is always on screen: a read-only save
  * directory shows as a red RUNNING FROM RAM warning. */
@@ -33,11 +34,13 @@
 #include "platform/app.h"
 #include "platform/input.h"
 #include "platform/joy_evdev.h"
+#include "platform/panel.h"
 #include "platform/perf.h"
 #include "platform/placeholder_view.h"
 #include "platform/save.h"
 #include "platform/screen.h"
 #include "platform/selftest.h"
+#include "platform/service.h"
 #include "platform/session.h"
 #include "platform/texreg.h"
 
@@ -48,11 +51,11 @@
 #define C_RED     ((Color){ 240, 60, 60, 255 })
 #define C_GREEN   ((Color){ 80, 230, 110, 255 })
 
-enum { PG_MAIN, PG_EFFECTS, PG_STATS, PG_INPUT, PG_SOUND, PG_SELFTEST };
+enum { PG_MAIN, PG_EFFECTS, PG_STATS, PG_INPUT, PG_SOUND, PG_SELFTEST, PG_LEARN };
 
 enum {
     IT_CREDITS, IT_ADD, IT_RESET, IT_DENOM, IT_COIN, IT_VMASTER, IT_VMUSIC, IT_VSFX, IT_MUSIC, IT_HINT,
-    IT_DOUBLE, IT_DIFF, IT_BUYIN, IT_EFFECTS, IT_STATS, IT_INPUT, IT_SOUND, IT_SELFTEST, IT_RESET_STATS,
+    IT_DOUBLE, IT_DIFF, IT_BUYIN, IT_EFFECTS, IT_STATS, IT_LEARN, IT_INPUT, IT_SOUND, IT_SELFTEST, IT_RESET_STATS,
     IT_EXIT, IT_COUNT
 };
 
@@ -159,6 +162,215 @@ static void step_u8(uint8_t *v, int lo, int hi, int d)
     *v = (uint8_t)(x < lo ? lo : x > hi ? hi : x);
 }
 
+/* ---- LEARN PANEL: which encoder input is in which panel position ----------
+ *
+ * Asks for each position in turn (P1 top row left to right, bottom row,
+ * SELECT, START, then P2) and records the first encoder button pressed. The
+ * panel buttons are suspended meanwhile (panel_suspend), so the presses do
+ * nothing else; the keyboard still works (Q / Backspace cancel). A position
+ * nobody presses for LEARN_WAIT seconds is left unwired (a cabinet without
+ * that button); on player 2's side a timeout skips the rest of the side.
+ * Holding any button for 3 s cancels. Offered by itself on the first start
+ * (autorun): there, no press at all for the first position means nobody is
+ * there, and it quietly gives up without asking again. */
+#define LEARN_WAIT   12.0f
+#define LEARN_CANCEL  3.0f
+#define LEARN_SHOW    5.0f
+
+static struct {
+    int       pending, autorun;       /* requested before the state switch      */
+    int       active, step, finished;
+    PanelWire got[PS_COUNT];
+    float     step_t, msg_t, hold_t, done_t, flash_t;
+    int       hold_j, hold_b;
+    char      msg[96];
+    int       saved;
+} W;
+
+void service_request_learn(AppCtx *ctx, int autorun)
+{
+    W.pending = 1;
+    W.autorun = autorun;
+    app_request(ctx, APP_SERVICE);
+}
+
+static void learn_start(int autorun)
+{
+    memset(W.got, 0, sizeof W.got);
+    for (int s = 0; s < PS_COUNT; s++) W.got[s].button = -1;
+    W.autorun = autorun;
+    W.active = 1;
+    W.step = 0;
+    W.finished = 0;
+    W.step_t = W.msg_t = W.hold_t = W.done_t = W.flash_t = 0;
+    W.hold_j = W.hold_b = -1;
+    W.msg[0] = '\0';
+    W.saved = 0;
+    V.page = PG_LEARN;
+    panel_suspend(1);
+}
+
+/* Ends the wizard; the state switch happens in service_tick (W.finished). */
+static void learn_stop(const char *why)
+{
+    if (!W.active) return;
+    W.active = 0;
+    panel_suspend(0);
+    if (W.autorun) panel_wizard_offered();
+    if (why) fprintf(stderr, "PANEL: learning %s\n", why);
+    W.finished = 1;
+}
+
+static void learn_update(float dt)
+{
+    if (!W.active) return;
+    W.flash_t += dt;
+    if (W.msg_t > 0) W.msg_t -= dt;
+    if (W.step >= PS_COUNT) {            /* the summary, then leave */
+        W.done_t += dt;
+        if (W.done_t >= LEARN_SHOW) learn_stop(NULL);
+        return;
+    }
+    /* Holding a button cancels. */
+    if (W.hold_b >= 0 && joy_button_down(W.hold_j, W.hold_b)) {
+        W.hold_t += dt;
+        if (W.hold_t >= LEARN_CANCEL) { learn_stop("cancelled (button held)"); return; }
+    } else {
+        W.hold_b = -1;
+        W.hold_t = 0;
+    }
+    for (int j = 0; j < joy_count(); j++) {
+        for (int b = 0; b < joy_buttons(j); b++) {
+            if (!joy_button_pressed(j, b)) continue;
+            W.hold_j = j;
+            W.hold_b = b;
+            W.hold_t = 0;
+            int dup = -1;
+            for (int s = 0; s < W.step; s++)
+                if (W.got[s].button == b && W.got[s].joy == j) dup = s;
+            if (dup >= 0) {
+                snprintf(W.msg, sizeof W.msg, "THAT ONE IS ALREADY %s", panel_slot_name((PanelSlot)dup));
+                W.msg_t = 2.0f;
+                audio_play(SFX_ERROR, 0.6f, 1.0f, 0.0f);
+                return;
+            }
+            W.got[W.step].joy = (int8_t)j;
+            W.got[W.step].button = (int8_t)b;
+            W.step++;
+            W.step_t = 0;
+            W.msg[0] = '\0';
+            audio_play(SFX_SERVICE_BEEP, 0.8f, 1.0f + 0.04f * (float)W.step, 0.0f);
+            if (W.step == PS_COUNT) {
+                W.saved = panel_set_wiring(W.got) == 0;
+                audio_play(SFX_MENU_SELECT, 1.0f, 1.0f, 0.0f);
+            }
+            return;
+        }
+    }
+    W.step_t += dt;
+    if (W.step_t >= LEARN_WAIT) {
+        if (W.step == 0 && W.autorun) { learn_stop("not answered: nobody at the panel"); return; }
+        snprintf(W.msg, sizeof W.msg, "NO PRESS: %s LEFT UNWIRED", panel_slot_name((PanelSlot)W.step));
+        W.msg_t = 2.5f;
+        /* Player 2's side: one timeout skips the rest of it. */
+        int to = W.step >= PS_PER_SIDE ? PS_COUNT : W.step + 1;
+        W.step = to;
+        W.step_t = 0;
+        if (W.step == PS_COUNT) W.saved = panel_set_wiring(W.got) == 0;
+    }
+}
+
+/* The panel as a drawing: per side a stick, two rows of three buttons, and
+ * SELECT / START. mark = the position to press (pulsing), -1 none; lit =
+ * positions held now (bit per slot); labels = what each one does. */
+static void draw_panel(float x, float y, float scale, int mark, uint32_t lit, int labels, double time)
+{
+    const float r = 26 * scale, gx = 78 * scale, gy = 74 * scale;
+    for (int side = 0; side < 2; side++) {
+        float ox = x + side * 520 * scale;
+        DrawRectangleRounded((Rectangle){ ox, y, 480 * scale, 250 * scale }, 0.12f, 8, (Color){ 24, 20, 28, 255 });
+        DrawRectangleRoundedLines((Rectangle){ ox, y, 480 * scale, 250 * scale }, 0.12f, 8, Fade(C_HONEY, 0.4f));
+        DrawText(side ? "PLAYER 2" : "PLAYER 1", (int)(ox + 14 * scale), (int)(y + 8 * scale), (int)(18 * scale), C_DIM);
+        /* the stick */
+        float sx = ox + 70 * scale, sy = y + 110 * scale;
+        DrawCircle((int)sx, (int)sy, 34 * scale, (Color){ 40, 34, 46, 255 });
+        DrawCircle((int)sx, (int)sy, 16 * scale, (Color){ 200, 40, 50, 255 });
+        for (int k = 0; k < PS_PER_SIDE; k++) {
+            int s = side * PS_PER_SIDE + k;
+            float cx, cy, rr = r;
+            if (k < 6) {
+                cx = ox + 190 * scale + (float)(k % 3) * gx;
+                cy = y + 70 * scale + (float)(k / 3) * gy;
+            } else {
+                cx = ox + 210 * scale + (float)(k - 6) * 110 * scale;
+                cy = y + 214 * scale;
+                rr = 13 * scale;
+            }
+            int on = (lit >> s) & 1u;
+            Color fill = on ? C_HONEY : (Color){ 52, 46, 58, 255 };
+            if (s == mark) {
+                float p = 0.5f + 0.5f * sinf((float)time * 8);
+                DrawCircle((int)cx, (int)cy, rr + 10 * scale * p, Fade(C_CYAN, 0.35f));
+                fill = on ? C_HONEY : Fade(C_CYAN, 0.55f + 0.4f * p);
+            }
+            DrawCircle((int)cx, (int)cy, rr, fill);
+            DrawCircleLines((int)cx, (int)cy, rr, Fade(C_HONEY, 0.7f));
+            const char *lab = labels ? panel_slot_label((PanelSlot)s) : "";
+            if (k >= 6) lab = k == 6 ? "SELECT" : "START";
+            int fs = (int)(14 * scale);
+            int tw = MeasureText(lab, fs);
+            float ly = k < 6 ? cy + rr + 4 * scale : cy - rr - 18 * scale;
+            if (k < 3 && labels) ly = cy - rr - 18 * scale;
+            DrawText(lab, (int)(cx - tw / 2), (int)ly, fs, on ? RAYWHITE : C_DIM);
+        }
+    }
+}
+
+static uint32_t slots_down(void)
+{
+    uint32_t m = 0;
+    for (int s = 0; s < PS_COUNT; s++)
+        if (panel_slot_down((PanelSlot)s)) m |= 1u << s;
+    return m;
+}
+
+static void draw_learn(const AppCtx *ctx)
+{
+    (void)ctx;
+    double t = W.flash_t;
+    if (W.step < PS_COUNT) {
+        char s[120];
+        snprintf(s, sizeof s, "%s SIDE: PRESS THE", W.step < PS_PER_SIDE ? "PLAYER 1" : "PLAYER 2");
+        DrawText(s, 40, 70, 30, RAYWHITE);
+        const char *where = panel_slot_name((PanelSlot)W.step) + 3;     /* without "P1 " */
+        DrawText(where, 40, 108, 44, C_CYAN);
+        snprintf(s, sizeof s, "BUTTON  (%d of %d)", W.step + 1, PS_COUNT);
+        DrawText(s, 40 + MeasureText(where, 44) + 20, 118, 30, RAYWHITE);
+        /* Where it is, and each one learnt so far lit. */
+        uint32_t got = 0;
+        for (int i = 0; i < W.step; i++)
+            if (W.got[i].button >= 0) got |= 1u << i;
+        draw_panel(40, 190, 1.15f, W.step, got, 0, t);
+        int left = (int)(LEARN_WAIT - W.step_t + 0.99f);
+        snprintf(s, sizeof s, "No press in %d s: this position has no button. Hold any button %d s: cancel.", left,
+                 (int)LEARN_CANCEL);
+        DrawText(s, 40, 500, 20, C_DIM);
+        if (W.hold_b >= 0 && W.hold_t > 0.5f) DrawText("CANCELLING...", 40, 530, 24, C_RED);
+        if (W.msg_t > 0) DrawText(W.msg, 40, 560, 26, C_HONEY);
+        DrawText("Keyboard: Q or Backspace cancels.", 40, 680, 20, C_DIM);
+    } else {
+        DrawText(W.saved ? "PANEL LEARNED AND SAVED" : "PANEL LEARNED (NOT SAVED: SAVE DIRECTORY NOT WRITABLE)", 40, 70, 34,
+                 W.saved ? C_GREEN : C_RED);
+        DrawText("Every button now does this (press one to check it):", 40, 116, 22, RAYWHITE);
+        draw_panel(40, 170, 1.15f, -1, slots_down(), 1, t);
+        if (W.msg_t > 0) DrawText(W.msg, 40, 500, 24, C_HONEY);
+        char s[80];
+        snprintf(s, sizeof s, "Back in %d s.  The CONTROLS page in the game menu shows this too.",
+                 (int)(LEARN_SHOW - W.done_t + 0.99f));
+        DrawText(s, 40, 560, 22, C_DIM);
+    }
+}
+
 /* LEFT/RIGHT (d = -1/+1) or DEAL (d = 0) on a main-page line. */
 static void main_action(AppCtx *ctx, int d)
 {
@@ -193,6 +405,7 @@ static void main_action(AppCtx *ctx, int d)
     case IT_BUYIN:   changed = step_u32(&s->holdem_buyin, settings_buyins, settings_nbuyins, d ? d : 1); break;
     case IT_EFFECTS: if (!d) V.page = PG_EFFECTS; break;
     case IT_STATS:   if (!d) V.page = PG_STATS; break;
+    case IT_LEARN:   if (!d) learn_start(0); break;
     case IT_INPUT:   if (!d) { V.page = PG_INPUT; V.cashout_held = 0; } break;
     case IT_SOUND:   if (!d) { V.page = PG_SOUND; V.cycle = 0; } break;
     case IT_SELFTEST:if (!d) { V.page = PG_SELFTEST; start_selftest(); } break;
@@ -217,6 +430,10 @@ static void service_enter(AppCtx *ctx, AppState from)
     V.page = PG_MAIN;
     V.confirm = -1;
     V.cycle = 0;
+    if (W.pending) {
+        W.pending = 0;
+        learn_start(W.autorun);
+    }
 }
 
 static void leave_service(AppCtx *ctx)
@@ -237,6 +454,12 @@ static void service_tick(AppCtx *ctx, const InputFrame *in)
     int back = (p & (BTN_BACK | BTN_CASH_OUT | BTN_SERVICE)) != 0;
 
     if (atomic_load(&V.st_state) == 2) finish_selftest();
+
+    if (W.finished) {
+        W.finished = 0;
+        if (W.autorun) { leave_service(ctx); return; }
+        V.page = PG_MAIN;
+    }
 
     switch (V.page) {
     case PG_MAIN:
@@ -283,6 +506,10 @@ static void service_tick(AppCtx *ctx, const InputFrame *in)
         if (back) { V.page = PG_MAIN; break; }
         if (ok && atomic_load(&V.st_state) != 1) start_selftest();
         break;
+    case PG_LEARN:
+        /* The panel is suspended: only the keyboard reaches here. */
+        if (back) learn_stop("cancelled");
+        break;
     default:
         if (back) V.page = PG_MAIN;
         break;
@@ -292,6 +519,7 @@ static void service_tick(AppCtx *ctx, const InputFrame *in)
 static void service_present_update(const AppCtx *ctx, const GameEvent *ev, int nev, float dt)
 {
     placeholder_common_update(ctx->state, ev, nev, dt);
+    if (V.page == PG_LEARN) learn_update(dt);
     if (V.play_req >= 0) {
         audio_play((SfxId)V.play_req, 1.0f, 1.0f, 0.0f);
         V.play_req = -1;
@@ -392,6 +620,7 @@ static void draw_main(const AppCtx *ctx)
         case IT_BUYIN: name = "HOLD'EM BUY-IN"; snprintf(v, sizeof v, "%u credits", (unsigned)s->holdem_buyin); break;
         case IT_EFFECTS: name = "EFFECTS  >"; break;
         case IT_STATS: name = "STATISTICS  >"; break;
+        case IT_LEARN: name = "LEARN PANEL  >"; snprintf(v, sizeof v, "%s", panel_learned() ? "learned" : "not learned yet"); break;
         case IT_INPUT: name = "INPUT TEST  >"; break;
         case IT_SOUND: name = "SOUND TEST  >"; break;
         case IT_SELFTEST: name = "SELF-TEST  >"; break;
@@ -491,6 +720,8 @@ static void draw_input(const AppCtx *ctx)
         DrawText(buf, 30, y, 20, C_CYAN);
         y += 26;
     }
+    /* The panel by position, lit while held, with what each button does. */
+    draw_panel(40, 456, 0.82f, -1, slots_down(), 1, ctx->time);
     if (ctx->input.touch) DrawCircleLines(ctx->input.touch_x, ctx->input.touch_y, 18, C_CYAN);
 }
 
@@ -540,7 +771,7 @@ static void draw_selftest(void)
 static void service_present_draw(const AppCtx *ctx)
 {
     static const char *const titles[] = { "SERVICE", "SERVICE - EFFECTS", "SERVICE - STATISTICS", "SERVICE - INPUT TEST",
-                                          "SERVICE - SOUND TEST", "SERVICE - SELF-TEST" };
+                                          "SERVICE - SOUND TEST", "SERVICE - SELF-TEST", "SERVICE - LEARN PANEL" };
     DrawRectangle(0, 0, PLAY_W, PLAY_H, (Color){ 10, 12, 20, 255 });
     DrawRectangle(0, 0, PLAY_W, 44, (Color){ 40, 30, 10, 255 });
     DrawText(titles[V.page], 20, 10, 30, C_HONEY);
@@ -553,11 +784,13 @@ static void service_present_draw(const AppCtx *ctx)
     case PG_INPUT: draw_input(ctx); break;
     case PG_SOUND: draw_sound(); break;
     case PG_SELFTEST: draw_selftest(); break;
+    case PG_LEARN: draw_learn(ctx); break;
     }
 }
 
 static void service_shutdown(void)
 {
+    if (W.active) panel_suspend(0);
     int st = atomic_load(&V.st_state);
     if (st >= 1 && !pthread_equal(V.thr, pthread_self())) pthread_join(V.thr, NULL);
     atomic_store(&V.st_state, 0);

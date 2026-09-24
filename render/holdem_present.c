@@ -2172,7 +2172,13 @@ static void draw_action_bar(const HoldemViewInfo *v, const HoldemGame *g, double
         float p = ease(EASE_OUT_QUAD, P.btn[i].press);
         float cx = r[i].x + r[i].width * 0.5f, dy = 2 * p;
         Color cap = b.st[i] == BTN_STATE_OFF ? (Color){ 110, 100, 110, 255 } : fade(b.col[i], 0.95f);
-        label(FONT_UI_S, b.caption[i], cx, r[i].y + 13 + dy, 14, cap, ALIGN_CENTER, 0);
+        /* The caption names the panel button; the icon beside it shows where it is. */
+        static const uint32_t keys[B_N] = { BTN_HOLD1, BTN_HOLD2, BTN_HOLD3, BTN_HOLD4, BTN_HOLD5, BTN_BET_MAX, BTN_DEAL };
+        const float gh = 15, gw = ui_panel_glyph_w(gh), cw = text_width(FONT_UI_S, b.caption[i], 14, 0);
+        float x0 = cx - (gw + 6 + cw) * 0.5f;
+        ui_panel_glyph(x0, r[i].y + 5 + dy, gh, keys[i], b.st[i] == BTN_STATE_OFF ? (Color){ 150, 140, 150, 255 } : b.col[i],
+                       b.st[i] == BTN_STATE_OFF ? 0.6f : 1.0f);
+        label(FONT_UI_S, b.caption[i], x0 + gw + 6 + cw * 0.5f, r[i].y + 13 + dy, 14, cap, ALIGN_CENTER, 0);
         TextStyle ts = style(b.st[i] == BTN_STATE_OFF ? (Color){ 120, 112, 120, 255 } : (Color){ 255, 250, 240, 255 }, ALIGN_CENTER);
         ts.shadow = BLACK;
         ts.shadow_k = 0.8f;

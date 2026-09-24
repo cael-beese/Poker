@@ -85,8 +85,13 @@ void holdem_view_draw(const HoldemViewInfo *v, double time);
 
 /* ---- menu and attract ------------------------------------------------------ */
 
+/* The menu's selection after the four games: the CONTROLS page. */
+#define MENU_SEL_CONTROLS MENU_NGAMES
+
 typedef struct {
-    int         sel;            /* MENU_GAME_* highlighted                         */
+    int         sel;            /* MENU_GAME_* highlighted, or MENU_SEL_CONTROLS    */
+    int         controls;       /* the CONTROLS page is open                        */
+    uint32_t    down;           /* logical buttons held (the page lights them)      */
     int         hint_on;
     int64_t     credits;
     int         denom_cents;

@@ -11,6 +11,7 @@
 #include "platform/app.h"
 #include "platform/gputest.h"
 #include "platform/ini.h"
+#include "platform/panel.h"
 #include "platform/session.h"
 #include "platform/fx_settings.h"
 
@@ -45,6 +46,7 @@ static int cfg_handler(void *user, const char *section, const char *key, const c
 {
     Options *o = ((CfgCtx *)user)->o;
     if (strcasecmp(section, "input") == 0) return input_config_set(&o->input, key, value);
+    if (strcasecmp(section, "panel") == 0) return panel_config_set(key, value);
     if (strcasecmp(section, "display") == 0) {
         if (strcasecmp(key, "size") == 0) {
             if (strcasecmp(value, "native") == 0) { o->width = o->height = 0; return 0; }
@@ -159,6 +161,7 @@ int options_parse(Options *o, int argc, char **argv)
     o->shader = 1;
     o->vsync = 1;
     input_defaults(&o->input);
+    panel_defaults();
     screen_config_defaults(&o->screen);
     fx_settings_defaults(&g_effects);
 

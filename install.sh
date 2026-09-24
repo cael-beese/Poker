@@ -205,12 +205,25 @@ run_root rm -rf "$PREFIX/assets.old"
 if [ -d "$PREFIX/assets" ]; then run_root mv "$PREFIX/assets" "$PREFIX/assets.old"; fi
 run_root mv "$PREFIX/assets.new" "$PREFIX/assets"
 run_root rm -rf "$PREFIX/assets.old"
-if [ -f "$PREFIX/config.ini" ] && ! cmp -s "$PREFIX/config.ini" "$ROOT/platform/config.ini"; then
-    say "  keeping your $PREFIX/config.ini; the new default is config.ini.default"
-    run_root install -m 644 "$ROOT/platform/config.ini" "$PREFIX/config.ini.default"
+# config.ini: an edited one is kept (the new default goes beside it as
+# config.ini.default); one nobody edited - identical to the default installed
+# last time, or to any default this installer has shipped - is updated.
+SHIPPED_DEFAULTS="20095b89468d1a5fc6a156499efa4d41 70c195c082b41f5e09d2092edc917a4f
+a48c7c874a87d9bf845e6992228f95c6 eba89c2dd6c175a86d9c5e6ba24e40a8"
+config_unedited() {
+    [ -f "$PREFIX/config.ini.default" ] && cmp -s "$PREFIX/config.ini" "$PREFIX/config.ini.default" && return 0
+    local sum
+    sum="$(md5sum < "$PREFIX/config.ini" | cut -c1-32)"
+    case " $(echo $SHIPPED_DEFAULTS) " in *" $sum "*) return 0 ;; esac
+    return 1
+}
+if [ -f "$PREFIX/config.ini" ] && ! cmp -s "$PREFIX/config.ini" "$ROOT/platform/config.ini" && ! config_unedited; then
+    say "  keeping your edited $PREFIX/config.ini; the new default is config.ini.default"
 else
+    [ -f "$PREFIX/config.ini" ] && ! cmp -s "$PREFIX/config.ini" "$ROOT/platform/config.ini" && say "  updating config.ini (you had not edited it)"
     run_root install -m 644 "$ROOT/platform/config.ini" "$PREFIX/config.ini"
 fi
+run_root install -m 644 "$ROOT/platform/config.ini" "$PREFIX/config.ini.default"
 for f in LICENSE.md CREDITS.md README.md; do
     if [ -f "$ROOT/$f" ]; then run_root install -m 644 "$ROOT/$f" "$PREFIX/$f"; fi
 done

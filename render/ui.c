@@ -9,6 +9,7 @@
 
 #include "engine/card.h"
 #include "platform/fx_settings.h"
+#include "platform/panel.h"
 #include "platform/screen.h"
 #include "platform/texreg.h"
 #include "render/art.h"
@@ -247,7 +248,55 @@ void ui_button_update(UiButton *b, UiButtonState st, float dt)
     b->lit += (target - b->lit) * clampf(dt * 10, 0, 1);
 }
 
+/* ---- the panel icon ---------------------------------------------------- */
+
+float ui_panel_glyph_w(float h) { return h * 2.5f; }
+
+float ui_panel_glyph(float x, float y, float h, uint32_t btn, Color c, float alpha)
+{
+    /* Per side two rows of three dots and a row of two pills (SELECT, START);
+     * the sides a gap apart, as on the cabinet. u = one row. */
+    const float u = h / 3.0f, dr = u * 0.42f, pitch = u * 1.02f, side_w = pitch * 3, gap = h * 2.5f - 2 * side_w;
+    const Nine *dot = sprite_nine(NINE_RRECT);
+    for (int s = 0; s < PS_COUNT; s++) {
+        int side = s / PS_PER_SIDE, k = s % PS_PER_SIDE;
+        int on = (panel_slot_buttons((PanelSlot)s) & btn) != 0;
+        float ox = x + side * (side_w + gap);
+        float cx, cy, w, hh;
+        if (k < 6) {
+            cx = ox + pitch * ((float)(k % 3) + 0.5f);
+            cy = y + u * ((float)(k / 3) + 0.5f);
+            w = hh = 2 * dr * (on ? 1.2f : 1.0f);
+        } else {
+            cx = ox + side_w * (k == 6 ? 0.3f : 0.7f);
+            cy = y + u * 2.55f;
+            w = u * 0.95f * (on ? 1.2f : 1.0f);
+            hh = u * 0.5f * (on ? 1.2f : 1.0f);
+        }
+        PCol col = on ? gfx_cola(c, alpha) : gfx_cola((Color){ 120, 108, 124, 255 }, 0.55f * alpha);
+        if (on) gfx_spr_rot(sprite(SPR_GLOW), cx, cy, u * 3.2f, u * 3.2f, 0, gfx_add(c, 0.9f * alpha));
+        if (k < 6) gfx_circle(cx, cy, w * 0.5f, col);
+        else gfx_nine(dot, cx - w / 2, cy - hh / 2, w, hh, fminf(w, hh) / 2, col);
+    }
+    return h * 2.5f;
+}
+
+static void button_draw(const UiButton *b, Rectangle r, const char *label, Color neon, UiButtonState st, double time,
+                        uint32_t key);
+
 void ui_button_draw(const UiButton *b, Rectangle r, const char *label, Color neon, UiButtonState st, double time)
+{
+    button_draw(b, r, label, neon, st, time, 0);
+}
+
+void ui_button_draw_key(const UiButton *b, Rectangle r, const char *label, Color neon, UiButtonState st, double time,
+                        uint32_t key)
+{
+    button_draw(b, r, label, neon, st, time, key);
+}
+
+static void button_draw(const UiButton *b, Rectangle r, const char *label, Color neon, UiButtonState st, double time,
+                        uint32_t key)
 {
     float p = ease(EASE_OUT_QUAD, b->press);
     float sc = 1.0f - 0.06f * p;
@@ -277,7 +326,18 @@ void ui_button_draw(const UiButton *b, Rectangle r, const char *label, Color neo
     ts.shadow = BLACK;
     ts.shadow_k = 0.8f;
     float size = fminf(q.height * 0.42f, 30) * sc;
-    text_draw_ex(FONT_DISP_S, label, cx, cy - size * 0.5f + 2 * p, size, &ts);
+    float lx = cx;
+    if (key && panel_slot_of(key) >= 0) {
+        /* Where it is on the panel, at the left; the label centred in the rest. */
+        float gh = fminf(q.height * 0.5f, 22), gw = ui_panel_glyph_w(gh);
+        ui_panel_glyph(q.x + 9, cy - gh * 0.5f + 2 * p, gh, key, st == BTN_STATE_OFF ? (Color){ 150, 140, 150, 255 } : neon,
+                       st == BTN_STATE_OFF ? 0.6f : 1.0f);
+        float room = q.width - gw - 22;
+        lx = q.x + gw + 13 + room * 0.5f;
+        float tw = text_width(FONT_DISP_S, label, size, 0);
+        if (tw > room && tw > 0) size *= room / tw;
+    }
+    text_draw_ex(FONT_DISP_S, label, lx, cy - size * 0.5f + 2 * p, size, &ts);
 }
 
 /* ---- marquee ------------------------------------------------------------ */

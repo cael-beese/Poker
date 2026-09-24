@@ -967,7 +967,7 @@ static void draw_card_slot(const DrawViewInfo *v, int i, float dim, double time)
 static void hold_button(int i, const char *label, Color neon, UiButtonState st, double time)
 {
     Rectangle r = { slot_x(i) - HOLD_W / 2, HOLD_CY - HOLD_H / 2, HOLD_W, HOLD_H };
-    ui_button_draw(&V.s[i].btn, r, label, neon, st, time);
+    ui_button_draw_key(&V.s[i].btn, r, label, neon, st, time, BTN_HOLD_N(i));
 }
 
 static void draw_hold_row(const DrawViewInfo *v, double time)
@@ -1178,13 +1178,13 @@ static void draw_bar(const DrawViewInfo *v, double time)
     const float by = BAR_Y + 7, bh = BAR_H - 14;
     UiButtonState s1 = busy ? BTN_STATE_OFF : BTN_STATE_ON;
     const char *l1 = hold ? (v->hint_on ? "HINT OFF" : "HINT ON") : "BET ONE";
-    ui_button_draw(&V.btn[B_BETONE], (Rectangle){ 598, by, 146, bh }, l1, hold ? UI_CYAN : UI_AMBER, s1, time);
-    ui_button_draw(&V.btn[B_BETMAX], (Rectangle){ 754, by, 146, bh }, "BET MAX", UI_MAGENTA,
-                   idle || offer || dbl ? BTN_STATE_ON : BTN_STATE_OFF, time);
+    ui_button_draw_key(&V.btn[B_BETONE], (Rectangle){ 598, by, 146, bh }, l1, hold ? UI_CYAN : UI_AMBER, s1, time, BTN_BET_ONE);
+    ui_button_draw_key(&V.btn[B_BETMAX], (Rectangle){ 754, by, 146, bh }, "BET MAX", UI_MAGENTA,
+                       idle || offer || dbl ? BTN_STATE_ON : BTN_STATE_OFF, time, BTN_BET_MAX);
     UiButtonState sd = busy ? BTN_STATE_OFF : (idle || hold) ? BTN_STATE_LIT : BTN_STATE_ON;
-    ui_button_draw(&V.btn[B_DEAL], (Rectangle){ 910, by, 176, bh }, hold ? "DRAW" : "DEAL", UI_GOLD, sd, time);
-    ui_button_draw(&V.btn[B_CASH], (Rectangle){ 1096, by, 150, bh }, "CASH OUT", UI_CYAN,
-                   busy ? BTN_STATE_OFF : BTN_STATE_ON, time);
+    ui_button_draw_key(&V.btn[B_DEAL], (Rectangle){ 910, by, 176, bh }, hold ? "DRAW" : "DEAL", UI_GOLD, sd, time, BTN_DEAL);
+    ui_button_draw_key(&V.btn[B_CASH], (Rectangle){ 1096, by, 150, bh }, "CASH OUT", UI_CYAN,
+                       busy ? BTN_STATE_OFF : BTN_STATE_ON, time, BTN_CASH_OUT);
 }
 
 /* Fill accounting (BPL_FILL_LOG=1): pixels drawn per frame by scene, the

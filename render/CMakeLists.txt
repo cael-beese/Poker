@@ -17,6 +17,7 @@ add_library(bpl_render STATIC
   holdem_present.c
   jobs.c
   lounge_view.c
+  controls_view.c
   particles.c
   post.c
   raster.c

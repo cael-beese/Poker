@@ -28,6 +28,8 @@ void draw_view_draw(const DrawViewInfo *v, double time);
 /* ---- menu and attract (lounge_view.c) ----------------------------------- */
 void menu_view_update(const MenuViewInfo *v, const GameEvent *ev, int nev, float dt);
 void menu_view_draw(const MenuViewInfo *v, double time);
+/* The menu's CONTROLS page (controls_view.c), drawn by menu_view_draw. */
+void controls_view_draw(const MenuViewInfo *v, double time);
 void attract_view_update(const AttractViewInfo *v, const GameEvent *ev, int nev, float dt);
 void attract_view_draw(const AttractViewInfo *v, double time);
 

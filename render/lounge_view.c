@@ -4,8 +4,10 @@
  *
  * Menu: four neon game tiles picked with HOLD 1-4 (BET ONE steps), each with
  * a little fan of cards for its game; the selected one lifts and glows. HOLD 5
- * toggles the strategy hint, DEAL plays. Attract: the marquee, the paytable of
- * the variant on show with all five columns, two fanned royal flushes and
+ * toggles the strategy hint, DEAL plays; the fifth choice opens the CONTROLS
+ * page (controls_view.c). Key caps and prompts carry the panel icon
+ * (ui_panel_glyph) showing where their button is. Attract: the marquee, the
+ * paytable of the variant on show with all five columns, two fanned royal flushes and
  * "PRESS DEAL" pulsing; over the demo games, a banner with "PRESS DEAL". The
  * demo games themselves are the real games drawn by their own views
  * (draw_view.c for Draw Poker). */
@@ -44,7 +46,7 @@ static struct {
     int      inited;
     Marquee  mq;
     BulbRing bulbs;
-    UiButton tile[MENU_NGAMES], hint, play;
+    UiButton tile[MENU_NGAMES], hint, play, ctl;
     Spring   lift[MENU_NGAMES];
     Meter    credits;
     int      sel, hint_on;
@@ -92,6 +94,13 @@ static Card card_of(const char *s)
 void menu_view_update(const MenuViewInfo *v, const GameEvent *ev, int nev, float dt)
 {
     lounge_init();
+    if (v->controls) {
+        /* The CONTROLS page: a click for every button, so a press is heard as well as seen. */
+        for (int i = 0; i < nev; i++)
+            if (ev[i].type == APP_EV_BUTTON) msfx(SFX_BUTTON, 0.6f, 1.0f);
+        L.t += dt;
+        return;
+    }
     if (v->sel != L.sel) {
         for (int i = 0; i < MENU_NGAMES; i++) L.lift[i].v += i == v->sel ? 60.0f : 0.0f;
         L.sel = v->sel;
@@ -108,7 +117,8 @@ void menu_view_update(const MenuViewInfo *v, const GameEvent *ev, int nev, float
         uint32_t bit = 1u << e->a;
         for (int k = 0; k < MENU_NGAMES; k++)
             if (bit & (BTN_HOLD1 << k)) ui_button_press(&L.tile[k]);
-        if (bit & (BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT | BTN_BET_ONE)) ui_button_press(&L.tile[v->sel]);
+        if ((bit & (BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT | BTN_BET_ONE)) && v->sel < MENU_NGAMES) ui_button_press(&L.tile[v->sel]);
+        if ((bit & (BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT | BTN_BET_ONE)) && v->sel == MENU_SEL_CONTROLS) ui_button_press(&L.ctl);
         if (bit & (BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT | BTN_BET_ONE | BTN_HOLD1 | BTN_HOLD2 | BTN_HOLD3 | BTN_HOLD4))
             msfx(SFX_MENU_MOVE, 0.8f, 1.0f + 0.05f * (float)v->sel);
         else if (bit & BTN_HOLD5) { ui_button_press(&L.hint); msfx(v->hint_on ? SFX_HOLD_ON : SFX_HOLD_OFF, 0.8f, 1); }
@@ -124,6 +134,7 @@ void menu_view_update(const MenuViewInfo *v, const GameEvent *ev, int nev, float
     }
     ui_button_update(&L.hint, v->hint_on ? BTN_STATE_LIT : BTN_STATE_ON, dt);
     ui_button_update(&L.play, BTN_STATE_LIT, dt);
+    ui_button_update(&L.ctl, v->sel == MENU_SEL_CONTROLS ? BTN_STATE_LIT : BTN_STATE_ON, dt);
     L.hint_flash = fmaxf(0, L.hint_flash - dt * 2);
     if (!L.credits.running && (long long)llround(L.credits.to) != v->credits) {
         if (L.credits.to == 0 && L.credits.shown == 0) meter_set(&L.credits, (double)v->credits);
@@ -144,17 +155,19 @@ static void draw_tile(const MenuViewInfo *v, int i, double time)
     float press = L.tile[i].press;
     ui_panel(r, on ? col : (Color){ col.r / 2, col.g / 2, col.b / 2, 255 }, 0.15f + 0.75f * lift + 0.6f * press, 1);
 
-    /* The key cap: which HOLD button picks this game. */
+    /* The key cap: which HOLD button picks this game, and where it is. */
     char key[24];
     snprintf(key, sizeof key, "HOLD %d", i + 1);
-    Rectangle kr = { cx - 50, r.y + 14, 100, 30 };
+    const float gh = 16, gw = ui_panel_glyph_w(gh);
+    Rectangle kr = { cx - 74, r.y + 14, 148, 30 };
     gfx_nine(sprite_nine(NINE_RRECT), kr.x, kr.y, kr.width, kr.height, 12,
              gfx_cola(on ? col : (Color){ 60, 50, 66, 255 }, on ? 0.9f : 1.0f));
+    ui_panel_glyph(kr.x + 8, kr.y + 7, gh, BTN_HOLD1 << i, on ? UI_INK : col, 1);
     TextStyle ts;
     memset(&ts, 0, sizeof ts);
     ts.align = ALIGN_CENTER;
     ts.color = on ? UI_INK : (Color){ 190, 180, 200, 255 };
-    text_draw_ex(FONT_DISP_S, key, cx, kr.y + 5, 18, &ts);
+    text_draw_ex(FONT_DISP_S, key, kr.x + gw + 12 + (kr.width - gw - 16) * 0.5f, kr.y + 5, 18, &ts);
 
     /* The name in neon. */
     float fs = i == MENU_GAME_JOB ? 30 : 34;
@@ -194,30 +207,43 @@ void menu_view_draw(const MenuViewInfo *v, double time)
     lounge_init();
     double t = L.t;
     (void)time;
+    if (v->controls) {
+        controls_view_draw(v, t);
+        return;
+    }
     render_begin();
     ui_background(t, 1);
     text_neon(FONT_NEON_M, "CHOOSE YOUR GAME", 640, 146, 30, UI_CYAN, 0.9f, 0.8f);
     for (int i = 0; i < MENU_NGAMES; i++)
         if (i != v->sel) draw_tile(v, i, t);
-    draw_tile(v, v->sel, t);
+    if (v->sel >= 0 && v->sel < MENU_NGAMES) draw_tile(v, v->sel, t);
 
-    /* The hint switch (HOLD 5). */
-    Rectangle hr = { 350, 494, 580, 44 };
-    ui_button_draw(&L.hint, hr, v->hint_on ? "HOLD 5   STRATEGY HINT  ON" : "HOLD 5   STRATEGY HINT  OFF",
-                   v->hint_on ? UI_CYAN : (Color){ 150, 140, 170, 255 }, v->hint_on ? BTN_STATE_LIT : BTN_STATE_ON, t);
+    /* The hint switch (HOLD 5), and the CONTROLS page (the fifth choice). */
+    Rectangle hr = { 196, 494, 540, 44 };
+    ui_button_draw_key(&L.hint, hr, v->hint_on ? "HOLD 5   STRATEGY HINT  ON" : "HOLD 5   STRATEGY HINT  OFF",
+                       v->hint_on ? UI_CYAN : (Color){ 150, 140, 170, 255 }, v->hint_on ? BTN_STATE_LIT : BTN_STATE_ON, t,
+                       BTN_HOLD5);
+    int ctl_on = v->sel == MENU_SEL_CONTROLS;
+    ui_button_draw(&L.ctl, (Rectangle){ 760, 494, 324, 44 }, "CONTROLS", ctl_on ? UI_GOLD : (Color){ 150, 140, 170, 255 },
+                   ctl_on ? BTN_STATE_LIT : BTN_STATE_ON, t);
 
     float pulse = 0.6f + 0.4f * sinf((float)t * 4);
     const char *game = k_tile_name[v->sel < 0 || v->sel >= MENU_NGAMES ? 0 : v->sel];
     char s[96];
-    snprintf(s, sizeof s, "PRESS DEAL TO PLAY %s", game);
-    text_neon(FONT_NEON_M, s, 640, 576, 34, UI_MAGENTA, pulse, 1.0f);
+    if (ctl_on) snprintf(s, sizeof s, "PRESS DEAL TO SEE THE CONTROLS");
+    else snprintf(s, sizeof s, "PRESS DEAL TO PLAY %s", game);
+    /* DEAL's place on the panel beside the prompt. */
+    const float dgh = 26, dgw = ui_panel_glyph_w(dgh), stw = text_width(FONT_NEON_M, s, 34, 0);
+    float sx0 = 640 - (dgw + 16 + stw) * 0.5f;
+    ui_panel_glyph(sx0, 576 - dgh * 0.5f, dgh, BTN_DEAL, UI_GOLD, pulse);
+    text_neon(FONT_NEON_M, s, sx0 + dgw + 16 + stw * 0.5f, 576, 34, UI_MAGENTA, pulse, 1.0f);
 
     meter_draw(&L.credits, (Rectangle){ 30, 614, 232, 76 }, "CREDITS", UI_CYAN);
     TextStyle ts;
     memset(&ts, 0, sizeof ts);
     ts.align = ALIGN_CENTER;
     ts.color = (Color){ 170, 160, 175, 255 };
-    const char *legend = "HOLD 1-4 / BET ONE: CHOOSE    DEAL: PLAY    HOLD 5: HINT    COIN: CREDITS";
+    const char *legend = "HOLD 1-4 / BET ONE / STICK: CHOOSE    DEAL: PLAY    HOLD 5: HINT    COIN: CREDITS";
     text_draw_ex(FONT_UI_M, legend, 740, 632, 20, &ts);
     if (v->credits <= 0) {
         snprintf(s, sizeof s, "INSERT COIN  -  %lld CREDITS PER COIN", (long long)v->coin_credits);
@@ -292,7 +318,13 @@ void attract_view_draw(const AttractViewInfo *v, double time)
         }
         royal_fan(166, 332, SUIT_H, clampf((L.phase_t - 0.3f) / 1.0f, 0, 1), t, 0);
         royal_fan(1114, 332, SUIT_S, clampf((L.phase_t - 0.5f) / 1.0f, 0, 1), t, 1);
-        text_neon(FONT_NEON_L, "PRESS DEAL", 640, 488, 66, UI_CYAN, pulse, 1.2f);
+        {
+            /* Where DEAL is, beside the invitation. */
+            const float gh = 40, gw = ui_panel_glyph_w(gh), tw = text_width(FONT_NEON_L, "PRESS DEAL", 66, 0);
+            float x0 = 640 - (gw + 22 + tw) * 0.5f;
+            ui_panel_glyph(x0, 488 - gh * 0.5f, gh, BTN_DEAL, UI_GOLD, pulse);
+            text_neon(FONT_NEON_L, "PRESS DEAL", x0 + gw + 22 + tw * 0.5f, 488, 66, UI_CYAN, pulse, 1.2f);
+        }
         TextStyle ts;
         memset(&ts, 0, sizeof ts);
         ts.align = ALIGN_CENTER;
@@ -317,7 +349,12 @@ void attract_view_draw(const AttractViewInfo *v, double time)
      * after the demo's bloom. */
     gfx_begin();
     gfx_rect_vgrad(0, 596, PLAY_W, 124, gfx_cola(BLACK, 0.0f), gfx_cola(BLACK, 0.88f));
-    text_neon(FONT_NEON_L, "PRESS DEAL", 640, 646, 54, UI_CYAN, pulse, 1.1f);
+    {
+        const float gh = 32, gw = ui_panel_glyph_w(gh), tw = text_width(FONT_NEON_L, "PRESS DEAL", 54, 0);
+        float x0 = 640 - (gw + 18 + tw) * 0.5f;
+        ui_panel_glyph(x0, 646 - gh * 0.5f, gh, BTN_DEAL, UI_GOLD, pulse);
+        text_neon(FONT_NEON_L, "PRESS DEAL", x0 + gw + 18 + tw * 0.5f, 646, 54, UI_CYAN, pulse, 1.1f);
+    }
     char s[64];
     snprintf(s, sizeof s, "DEMO  -  %s", v->phase == ATTRACT_DRAW ? draw_variant_name(v->variant) : "TEXAS HOLD'EM");
     TextStyle ts;

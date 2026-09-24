@@ -179,3 +179,52 @@ void gfx_push_offset(float dx, float dy, float rot_deg, float cx, float cy)
 }
 
 void gfx_pop_offset(void) { rlPopMatrix(); }
+
+/* ---- circles ------------------------------------------------------------- */
+/* Triangle fans from the atlas's white texel, so they share the batch with
+ * everything else; the edge fades out over one pixel instead of stepping. */
+
+static int circle_segments(float r)
+{
+    int n = (int)(r * 0.9f);
+    return n < 12 ? 12 : n > 64 ? 64 : n;
+}
+
+void gfx_circle(float cx, float cy, float r, PCol c)
+{
+    if (r <= 0) return;
+    const PCol clear = { 0, 0, 0, 0 };
+    int n = circle_segments(r);
+    float ri = r - 0.5f > 0 ? r - 0.5f : 0, ro = r + 0.5f;
+    for (int i = 0; i < n; i++) {
+        float a0 = -6.2831853f * (float)i / (float)n, a1 = -6.2831853f * (float)(i + 1) / (float)n;   /* this way round: raylib culls the other winding */
+        float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
+        const Vector2 fan[4] = { { cx, cy }, { cx + c0 * ri, cy + s0 * ri }, { cx + c1 * ri, cy + s1 * ri }, { cx, cy } };
+        gfx_quad(&g_white, fan, c);
+        const Vector2 edge[4] = { { cx + c0 * ri, cy + s0 * ri }, { cx + c0 * ro, cy + s0 * ro },
+                                  { cx + c1 * ro, cy + s1 * ro }, { cx + c1 * ri, cy + s1 * ri } };
+        const PCol ec[4] = { c, clear, clear, c };
+        gfx_quad4(&g_white, edge, ec);
+    }
+}
+
+void gfx_ring(float cx, float cy, float r, float thick, PCol c)
+{
+    if (r <= 0 || thick <= 0) return;
+    const PCol clear = { 0, 0, 0, 0 };
+    int n = circle_segments(r);
+    float r1 = r - thick * 0.5f, r2 = r + thick * 0.5f;
+    const float rad[4] = { r1 - 0.5f, r1 + 0.5f, r2 - 0.5f, r2 + 0.5f };
+    const PCol col[4] = { clear, c, c, clear };
+    for (int i = 0; i < n; i++) {
+        float a0 = -6.2831853f * (float)i / (float)n, a1 = -6.2831853f * (float)(i + 1) / (float)n;   /* this way round: raylib culls the other winding */
+        float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
+        for (int k = 0; k < 3; k++) {
+            float ra = rad[k] > 0 ? rad[k] : 0, rb = rad[k + 1] > 0 ? rad[k + 1] : 0;
+            const Vector2 q[4] = { { cx + c0 * ra, cy + s0 * ra }, { cx + c0 * rb, cy + s0 * rb },
+                                   { cx + c1 * rb, cy + s1 * rb }, { cx + c1 * ra, cy + s1 * ra } };
+            const PCol qc[4] = { col[k], col[k + 1], col[k + 1], col[k] };
+            gfx_quad4(&g_white, q, qc);
+        }
+    }
+}
