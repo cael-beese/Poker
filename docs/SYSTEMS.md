@@ -171,3 +171,13 @@ executable picks in `platform/app_modes.c` like the mode table: the renderer's
 `draw_views_render` (`render/draw_view.c`, `render/lounge_view.c`) when
 render/ is built, else `draw_views_placeholder`. That keeps `bpl_platform`
 free of any link dependency on `bpl_render`.
+
+Hold'em is replaced (milestone 6): `mode_holdem.c` and the Hold'em part of
+`mode_attract.c` call `holdem_view_update` / `holdem_view_draw`, which use
+the `HoldemViewFns` table `app_holdem_view` when the executable defines one
+(`platform/app_modes.c` points it at `render/holdem_present.c`) and the
+placeholder otherwise. A table of pointers rather than direct calls, because
+bpl_render links after bpl_platform. `HoldemViewInfo.pressed` carries the
+frame's button presses for same-frame feedback. In attract the real view
+draws its own PRESS DEAL overlay, so `attract_placeholder_view` is skipped
+during the Hold'em demo.

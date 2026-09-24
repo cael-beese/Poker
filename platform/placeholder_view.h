@@ -63,10 +63,25 @@ typedef struct {
     int         confirm_leave;  /* the "leave the table?" prompt is open          */
     int         demo;
     const char *message;
+    uint32_t    pressed;        /* logical buttons pressed this frame (feedback) */
 } HoldemViewInfo;
 
 void holdem_placeholder_update(const HoldemViewInfo *v, const GameEvent *ev, int nev, float dt);
 void holdem_placeholder_view(const HoldemViewInfo *v, double time);
+
+/* The real Hold'em presentation (render/holdem_present.c) plugs in through
+ * this table, which the executable defines in app_modes.c (NULL: the
+ * placeholder draws). A pointer, not a direct call, because render/ links
+ * after bpl_platform. The modes call holdem_view_update / holdem_view_draw,
+ * which pick one or the other. */
+typedef struct {
+    void (*update)(const HoldemViewInfo *v, const GameEvent *ev, int nev, float dt);
+    void (*view)(const HoldemViewInfo *v, double time);
+} HoldemViewFns;
+extern const HoldemViewFns *const app_holdem_view;
+
+void holdem_view_update(const HoldemViewInfo *v, const GameEvent *ev, int nev, float dt);
+void holdem_view_draw(const HoldemViewInfo *v, double time);
 
 /* ---- menu and attract ------------------------------------------------------ */
 

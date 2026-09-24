@@ -241,6 +241,7 @@ static void fill(const AppCtx *ctx, HoldemViewInfo *v)
     v->won = H.won;
     v->confirm_leave = H.confirm;
     v->message = H.msg;
+    v->pressed = ctx->input.pressed;
 }
 
 static void holdem_mode_present_update(const AppCtx *ctx, const GameEvent *ev, int nev, float dt)
@@ -248,14 +249,14 @@ static void holdem_mode_present_update(const AppCtx *ctx, const GameEvent *ev, i
     HoldemViewInfo v;
     fill(ctx, &v);
     placeholder_common_update(ctx->state, ev, nev, dt);
-    holdem_placeholder_update(&v, ev, nev, dt);
+    holdem_view_update(&v, ev, nev, dt);
 }
 
 static void holdem_mode_present_draw(const AppCtx *ctx)
 {
     HoldemViewInfo v;
     fill(ctx, &v);
-    holdem_placeholder_view(&v, ctx->time);
+    holdem_view_draw(&v, ctx->time);
 }
 
 const AppMode mode_holdem = {

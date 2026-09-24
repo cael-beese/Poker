@@ -223,7 +223,7 @@ static void attract_present_update(const AppCtx *ctx, const GameEvent *ev, int n
     } else if (A.phase == ATTRACT_HOLDEM) {
         HoldemViewInfo v;
         fill_holdem(ctx, &v);
-        holdem_placeholder_update(&v, ev, nev, dt);
+        holdem_view_update(&v, ev, nev, dt);
     }
 }
 
@@ -237,9 +237,12 @@ static void attract_present_draw(const AppCtx *ctx)
     } else if (A.phase == ATTRACT_HOLDEM) {
         HoldemViewInfo v;
         fill_holdem(ctx, &v);
-        holdem_placeholder_view(&v, ctx->time);
+        holdem_view_draw(&v, ctx->time);
     }
-    if (app_draw_views->attract_view) app_draw_views->attract_view(&av, ctx->time);
+    /* The real Hold'em view draws its own PRESS DEAL overlay, so the
+       attract overlay is skipped over the Hold'em demo when it is present. */
+    if (app_draw_views->attract_view && (A.phase != ATTRACT_HOLDEM || !app_holdem_view))
+        app_draw_views->attract_view(&av, ctx->time);
 }
 
 static void attract_shutdown(void)
